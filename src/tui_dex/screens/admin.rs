@@ -610,7 +610,10 @@ impl AdminScreenState {
         {
             crate::tui_dex::utils::logger::log_info("=== ADMIN EXECUTE KEY PRESSED ===");
             crate::tui_dex::utils::logger::log_debug(&format!("Key event: {:?}", key));
-            crate::tui_dex::utils::logger::log_debug(&format!("Current focus: {:?}", self.input_focus));
+            crate::tui_dex::utils::logger::log_debug(&format!(
+                "Current focus: {:?}",
+                self.input_focus
+            ));
         }
 
         // Handle regular input focus
@@ -1961,7 +1964,10 @@ pub fn switch_admin_mode(app_state: &mut crate::tui_dex::app::AppState, mode: Ad
 }
 
 /// Update available pools for admin operations
-pub fn update_admin_pools(app_state: &mut crate::tui_dex::app::AppState, pools: Vec<(String, String)>) {
+pub fn update_admin_pools(
+    app_state: &mut crate::tui_dex::app::AppState,
+    pools: Vec<(String, String)>,
+) {
     app_state.admin_screen_state.update_available_pools(pools);
 }
 

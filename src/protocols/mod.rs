@@ -1,6 +1,5 @@
 /// Protocol modules for the Mantra SDK
 /// Each protocol represents a different contract or feature set on the MANTRA blockchain
-
 pub mod claimdrop;
 pub mod dex;
 pub mod skip;
@@ -32,7 +31,7 @@ pub trait Protocol: Send + Sync {
 
 /// Protocol registry for managing multiple protocols
 pub struct ProtocolRegistry {
-    protocols: Vec<Box<dyn Protocol>>,
+    protocols: Vec<Arc<dyn Protocol>>,
 }
 
 impl ProtocolRegistry {
@@ -44,7 +43,7 @@ impl ProtocolRegistry {
     }
 
     /// Register a new protocol
-    pub fn register(&mut self, protocol: Box<dyn Protocol>) {
+    pub fn register(&mut self, protocol: Arc<dyn Protocol>) {
         self.protocols.push(protocol);
     }
 
@@ -54,6 +53,22 @@ impl ProtocolRegistry {
             .iter()
             .find(|p| p.name() == name)
             .map(|p| p.as_ref())
+    }
+
+    /// Get a protocol by name with error context
+    pub fn get_protocol(&self, name: &str) -> Result<&dyn Protocol, Error> {
+        self.protocols
+            .iter()
+            .find(|p| p.name() == name)
+            .map(|p| p.as_ref())
+            .ok_or_else(|| {
+                let available_protocols = self.list();
+                Error::Config(format!(
+                    "Protocol '{}' not found. Available protocols: [{}]",
+                    name,
+                    available_protocols.join(", ")
+                ))
+            })
     }
 
     /// List all registered protocols

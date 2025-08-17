@@ -577,7 +577,9 @@ fn calculate_total_portfolio_value(balances: &HashMap<String, String>) -> f64 {
 }
 
 /// Count active liquidity positions
-fn count_active_positions(pool_cache: &HashMap<String, crate::tui_dex::app::PoolCacheEntry>) -> usize {
+fn count_active_positions(
+    pool_cache: &HashMap<String, crate::tui_dex::app::PoolCacheEntry>,
+) -> usize {
     // In a real implementation, you would check which pools the user has LP positions in
     // For now, we'll return the number of cached pools as a proxy
     pool_cache.len()

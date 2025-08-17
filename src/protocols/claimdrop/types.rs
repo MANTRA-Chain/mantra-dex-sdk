@@ -1,5 +1,4 @@
 /// ClaimDrop-specific types and structures
-
 use cosmwasm_std::{Coin, Uint128};
 use serde::{Deserialize, Serialize};
 
@@ -87,13 +86,9 @@ pub struct ClaimParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CampaignAction {
-    CreateCampaign {
-        params: CampaignParams,
-    },
+    CreateCampaign { params: CampaignParams },
     CloseCampaign,
-    TopUpCampaign {
-        amount: Vec<Coin>,
-    },
+    TopUpCampaign { amount: Vec<Coin> },
 }
 
 /// Blacklist action

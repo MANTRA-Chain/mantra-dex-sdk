@@ -1,6 +1,5 @@
 /// DEX Protocol Module
 /// Handles all DEX-related operations including pools, swaps, liquidity, and farming
-
 pub mod client;
 pub mod types;
 
@@ -22,9 +21,7 @@ pub struct DexProtocol {
 impl DexProtocol {
     /// Create a new DEX protocol instance
     pub fn new() -> Self {
-        Self {
-            initialized: false,
-        }
+        Self { initialized: false }
     }
 }
 
@@ -51,7 +48,7 @@ impl Protocol for DexProtocol {
         }))
     }
 
-    async fn initialize(&mut self, rpc_client: Arc<HttpClient>) -> Result<(), Error> {
+    async fn initialize(&mut self, _rpc_client: Arc<HttpClient>) -> Result<(), Error> {
         // Initialize the DEX client with the RPC connection
         // This would typically load contract addresses from config
         self.initialized = true;

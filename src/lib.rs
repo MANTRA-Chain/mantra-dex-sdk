@@ -4,7 +4,6 @@ pub mod error;
 pub mod protocols;
 pub mod wallet;
 
-
 // DEX TUI module - optional via "tui-dex" feature
 #[cfg(feature = "tui-dex")]
 pub mod tui_dex;
@@ -16,7 +15,7 @@ pub mod mcp;
 pub use mantra_dex_std;
 
 // Main client exports
-pub use client::{MantraClient, MantraClientBuilder};
+pub use client::{ConfigurationChanges, MantraClient, MantraClientBuilder};
 pub use config::{MantraNetworkConfig, NetworkConstants};
 pub use error::Error;
 pub use wallet::MantraWallet;
@@ -27,20 +26,20 @@ pub use protocols::{Protocol, ProtocolRegistry};
 // DEX protocol exports
 pub use protocols::dex::{DexProtocol, MantraDexClient};
 
-// Skip protocol exports  
+// Skip protocol exports
 pub use protocols::skip::{
-    SkipAction, SkipAffiliate, SkipAsset, SkipIbcInfo, SkipRoute, SkipSwap, 
-    SkipSwapExactAssetIn, SkipSwapExactAssetOut, SkipSwapOperation, 
-    SimulateSwapExactAssetInResponse, SimulateSwapExactAssetOutResponse, 
-    SimulateSmartSwapExactAssetInResponse, SkipProtocol
+    SimulateSmartSwapExactAssetInResponse, SimulateSwapExactAssetInResponse,
+    SimulateSwapExactAssetOutResponse, SkipAction, SkipAffiliate, SkipAsset, SkipIbcInfo,
+    SkipProtocol, SkipRoute, SkipSwap, SkipSwapExactAssetIn, SkipSwapExactAssetOut,
+    SkipSwapOperation,
 };
 
 // ClaimDrop protocol exports
 pub use protocols::claimdrop::{
-    ClaimdropClient, ClaimdropFactoryClient, ClaimdropProtocol,
-    CampaignParams, Allocation, CampaignInfo, UserRewards, AggregatedRewards,
-    ClaimdropOperationResult, ClaimParams, CampaignAction, BlacklistAction,
-    CampaignsResponse, AllocationsResponse, UserRewardsResponse, CampaignStats
+    AggregatedRewards, Allocation, AllocationsResponse, BlacklistAction, CampaignAction,
+    CampaignInfo, CampaignParams, CampaignStats, CampaignsResponse, ClaimParams, ClaimdropClient,
+    ClaimdropFactoryClient, ClaimdropOperationResult, ClaimdropProtocol, UserRewards,
+    UserRewardsResponse,
 };
 
 // Re-export DEX TUI entry point when feature is enabled

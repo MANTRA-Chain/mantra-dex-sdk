@@ -5,16 +5,16 @@
 
 // Modular configuration system
 pub mod contracts;
-pub mod protocols;
 pub mod env;
+pub mod protocols;
 
 // Re-export key types from modular system
 pub use contracts::{ContractInfo, ContractRegistry, ContractType, NetworkContracts};
-pub use protocols::{
-    FeeConfig, HealthConfig, ProtocolConfig, ProtocolId, ProtocolParameters,
-    ProtocolRegistry, RateLimitConfig
-};
 pub use env::{EnvironmentConfig, LoggingEnvConfig, McpEnvConfig, NetworkEnvConfig};
+pub use protocols::{
+    FeeConfig, HealthConfig, ProtocolConfig, ProtocolId, ProtocolParameters, ProtocolRegistry,
+    RateLimitConfig,
+};
 
 // Legacy configuration types and functions for backward compatibility
 use config::{Config as ConfigLoader, ConfigError, File};
@@ -201,12 +201,13 @@ impl MantraNetworkConfig {
     pub fn from_constants(constants: &NetworkConstants) -> Result<Self, Error> {
         // Attempt to load contract addresses for this network
         let contract_registry = ContractRegistry::load().unwrap_or_default();
-        let contracts = if let Ok(network_contracts) = contract_registry.get_network(&constants.network_name) {
-            ContractAddresses::from(network_contracts)
-        } else {
-            // Fallback to legacy loading
-            Self::load_contract_addresses(&constants.network_name).unwrap_or_default()
-        };
+        let contracts =
+            if let Ok(network_contracts) = contract_registry.get_network(&constants.network_name) {
+                ContractAddresses::from(network_contracts)
+            } else {
+                // Fallback to legacy loading
+                Self::load_contract_addresses(&constants.network_name).unwrap_or_default()
+            };
 
         Ok(Self {
             network_name: constants.network_name.clone(),
@@ -431,7 +432,7 @@ impl ConfigurationManager {
         if let Err(_) = self.contract_registry.set_active_network(&network) {
             // Network not found in contract registry, but we can still set it
         }
-        
+
         self.protocol_registry.set_active_network(&network);
         self.active_network = Some(network);
         Ok(())

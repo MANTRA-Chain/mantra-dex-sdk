@@ -165,7 +165,10 @@ impl SwapScreenState {
             .iter()
             .find(|(id, _)| id == pool_id)
             .and_then(|(_, name)| {
-                crate::tui_dex::utils::logger::log_debug(&format!("Found pool display name: {}", name));
+                crate::tui_dex::utils::logger::log_debug(&format!(
+                    "Found pool display name: {}",
+                    name
+                ));
 
                 // Expected format: "Pool <num>: SYMBOL_A (amount) / SYMBOL_B (amount)"
                 let after_colon = name
@@ -186,7 +189,10 @@ impl SwapScreenState {
                     })
                     .collect();
 
-                crate::tui_dex::utils::logger::log_debug(&format!("Parsed token parts: {:?}", parts));
+                crate::tui_dex::utils::logger::log_debug(&format!(
+                    "Parsed token parts: {:?}",
+                    parts
+                ));
 
                 if parts.len() == 2 {
                     Some(parts)
@@ -328,7 +334,10 @@ impl SwapScreenState {
         {
             crate::tui_dex::utils::logger::log_info("=== SWAP EXECUTE KEY PRESSED ===");
             crate::tui_dex::utils::logger::log_debug(&format!("Key event: {:?}", key));
-            crate::tui_dex::utils::logger::log_debug(&format!("Current focus: {:?}", self.input_focus));
+            crate::tui_dex::utils::logger::log_debug(&format!(
+                "Current focus: {:?}",
+                self.input_focus
+            ));
         }
 
         // Handle regular input focus
@@ -1166,7 +1175,9 @@ pub fn execute_swap_with_confirmation() {
         for error in &errors {
             crate::tui_dex::utils::logger::log_error(&format!("  - {}", error));
         }
-        crate::tui_dex::utils::logger::log_error("Swap validation failed - missing required fields");
+        crate::tui_dex::utils::logger::log_error(
+            "Swap validation failed - missing required fields",
+        );
         return;
     }
 

@@ -1,6 +1,5 @@
 /// ClaimDrop Protocol Module
 /// Handles claimdrop campaigns, allocations, and rewards distribution
-
 pub mod client;
 pub mod factory;
 pub mod types;

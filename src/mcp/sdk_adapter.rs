@@ -16,9 +16,9 @@ use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
 
-use crate::protocols::dex::MantraDexClient;
 use crate::client::MantraClient;
 use crate::config::MantraNetworkConfig;
+use crate::protocols::dex::MantraDexClient;
 use crate::wallet::{MantraWallet, WalletInfo};
 
 use super::server::{McpResult, McpServerError};
@@ -52,8 +52,8 @@ impl Default for ConnectionPoolConfig {
             connection_ttl_secs: 300, // 5 minutes
             max_retries: 3,
             retry_base_delay_ms: 100,
-            max_idle_time_secs: 60,         // 1 minute
-            health_check_interval_secs: 30, // 30 seconds
+            max_idle_time_secs: 60,           // 1 minute
+            health_check_interval_secs: 30,   // 30 seconds
             max_wallet_derivation_index: 100, // Search up to index 100
         }
     }
@@ -571,43 +571,56 @@ impl McpSdkAdapter {
     pub async fn add_wallet(&self, wallet: MantraWallet) -> McpResult<String> {
         let wallet_info = wallet.info();
         let address = wallet_info.address.clone();
-        
+
         // Store the wallet info
-        self.wallets.write().await.insert(address.clone(), wallet_info);
-        
+        self.wallets
+            .write()
+            .await
+            .insert(address.clone(), wallet_info);
+
         info!("Added new wallet: {}", address);
         Ok(address)
     }
 
     /// Add a new wallet to the collection with known derivation index for caching
-    pub async fn add_wallet_with_derivation_index(&self, wallet: MantraWallet, derivation_index: u32) -> McpResult<String> {
+    pub async fn add_wallet_with_derivation_index(
+        &self,
+        wallet: MantraWallet,
+        derivation_index: u32,
+    ) -> McpResult<String> {
         let wallet_info = wallet.info();
         let address = wallet_info.address.clone();
-        
+
         // Store the wallet info
-        self.wallets.write().await.insert(address.clone(), wallet_info);
-        
+        self.wallets
+            .write()
+            .await
+            .insert(address.clone(), wallet_info);
+
         // Cache the derivation index for efficient wallet recreation
         {
             let mut cache = self.wallet_derivation_cache.write().await;
             cache.insert(address.clone(), derivation_index);
         }
-        
-        info!("Added new wallet: {} with derivation index: {}", address, derivation_index);
+
+        info!(
+            "Added new wallet: {} with derivation index: {}",
+            address, derivation_index
+        );
         Ok(address)
     }
 
     /// Remove a wallet from the collection
     pub async fn remove_wallet(&self, address: &str) -> McpResult<()> {
         let mut wallets = self.wallets.write().await;
-        
+
         if wallets.remove(address).is_some() {
             // Clear derivation cache entry
             {
                 let mut cache = self.wallet_derivation_cache.write().await;
                 cache.remove(address);
             }
-            
+
             // If this was the active wallet, clear the active wallet
             let mut active_wallet = self.active_wallet.lock().await;
             if active_wallet.as_ref() == Some(&address.to_string()) {
@@ -617,14 +630,17 @@ impl McpSdkAdapter {
             info!("Removed wallet: {}", address);
             Ok(())
         } else {
-            Err(McpServerError::InvalidArguments(format!("Wallet not found: {}", address)))
+            Err(McpServerError::InvalidArguments(format!(
+                "Wallet not found: {}",
+                address
+            )))
         }
     }
 
     /// Switch active wallet to a different address
     pub async fn switch_active_wallet(&self, address: &str) -> McpResult<()> {
         let wallets = self.wallets.read().await;
-        
+
         if let Some(_wallet_info) = wallets.get(address) {
             *self.active_wallet.lock().await = Some(address.to_string());
             // Clear the wallet instance - will be recreated when needed
@@ -632,7 +648,10 @@ impl McpSdkAdapter {
             info!("Switched active wallet to: {}", address);
             Ok(())
         } else {
-            Err(McpServerError::InvalidArguments(format!("Wallet not found: {}", address)))
+            Err(McpServerError::InvalidArguments(format!(
+                "Wallet not found: {}",
+                address
+            )))
         }
     }
 
@@ -663,7 +682,10 @@ impl McpSdkAdapter {
         let mnemonic = match env::var("WALLET_MNEMONIC") {
             Ok(m) if !m.trim().is_empty() => m,
             _ => {
-                debug!("No valid WALLET_MNEMONIC found in environment for address: {}", address);
+                debug!(
+                    "No valid WALLET_MNEMONIC found in environment for address: {}",
+                    address
+                );
                 return Ok(None);
             }
         };
@@ -675,7 +697,10 @@ impl McpSdkAdapter {
                 match MantraWallet::from_mnemonic(&mnemonic, derivation_index) {
                     Ok(wallet) => {
                         if wallet.info().address == address {
-                            debug!("Retrieved wallet from cache at index {} for address {}", derivation_index, address);
+                            debug!(
+                                "Retrieved wallet from cache at index {} for address {}",
+                                derivation_index, address
+                            );
                             return Ok(Some(wallet));
                         } else {
                             // Cache is stale, wallet address doesn't match
@@ -686,7 +711,10 @@ impl McpSdkAdapter {
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to recreate wallet from cached index {} for address {}: {}", derivation_index, address, e);
+                        warn!(
+                            "Failed to recreate wallet from cached index {} for address {}: {}",
+                            derivation_index, address, e
+                        );
                         // Clear stale cache entry
                         drop(cache);
                         let mut cache_mut = self.wallet_derivation_cache.write().await;
@@ -698,26 +726,32 @@ impl McpSdkAdapter {
 
         // Cache miss or stale cache - perform targeted search
         debug!("Performing derivation search for address: {}", address);
-        
+
         // Search with configurable upper bound to prevent infinite derivation
         let max_index = self.config.max_wallet_derivation_index;
         for index in 0..=max_index {
             match MantraWallet::from_mnemonic(&mnemonic, index) {
                 Ok(wallet) => {
                     if wallet.info().address == address {
-                        debug!("Found wallet at derivation index {} for address {}", index, address);
-                        
+                        debug!(
+                            "Found wallet at derivation index {} for address {}",
+                            index, address
+                        );
+
                         // Cache the successful derivation index
                         {
                             let mut cache = self.wallet_derivation_cache.write().await;
                             cache.insert(address.to_string(), index);
                         }
-                        
+
                         return Ok(Some(wallet));
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to create wallet at derivation index {}: {}", index, e);
+                    debug!(
+                        "Failed to create wallet at derivation index {}: {}",
+                        index, e
+                    );
                     // Continue searching - derivation errors at specific indices don't necessarily
                     // mean the wallet doesn't exist at a higher index
                 }
@@ -725,7 +759,10 @@ impl McpSdkAdapter {
         }
 
         // If we reach here, the wallet was not found within the search bounds
-        warn!("Could not find wallet for address {} within derivation index range 0-{}", address, max_index);
+        warn!(
+            "Could not find wallet for address {} within derivation index range 0-{}",
+            address, max_index
+        );
         Ok(None)
     }
 
@@ -882,15 +919,19 @@ impl McpSdkAdapter {
         // Get network config and client
         let network_config = self.get_default_network_config().await?;
         let client = self.get_client(&network_config).await?;
-        
+
         // Get available pools
-        let pools = client.get_pools(Some(10)).await
+        let pools = client
+            .get_pools(Some(10))
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
-        
+
         if pools.is_empty() {
-            return Err(McpServerError::InvalidArguments("No pools available".to_string()));
+            return Err(McpServerError::InvalidArguments(
+                "No pools available".to_string(),
+            ));
         }
-        
+
         // Return the first available pool ID
         Ok(pools[0].pool_info.pool_identifier.clone())
     }
@@ -919,21 +960,24 @@ impl McpSdkAdapter {
             Ok(slippage_value) => {
                 // Validate slippage range (0.0 to 1.0)
                 if slippage_value < Decimal::zero() {
-                    return Err(McpServerError::InvalidArguments(
-                        format!("Invalid slippage: {} - slippage cannot be negative", slippage_value)
-                    ));
+                    return Err(McpServerError::InvalidArguments(format!(
+                        "Invalid slippage: {} - slippage cannot be negative",
+                        slippage_value
+                    )));
                 }
                 if slippage_value > Decimal::one() {
-                    return Err(McpServerError::InvalidArguments(
-                        format!("Invalid slippage: {} - slippage cannot be greater than 1.0 (100%)", slippage_value)
-                    ));
+                    return Err(McpServerError::InvalidArguments(format!(
+                        "Invalid slippage: {} - slippage cannot be greater than 1.0 (100%)",
+                        slippage_value
+                    )));
                 }
                 Some(slippage_value)
             }
             Err(e) => {
-                return Err(McpServerError::InvalidArguments(
-                    format!("Invalid slippage format: '{}' - {}", slippage, e)
-                ));
+                return Err(McpServerError::InvalidArguments(format!(
+                    "Invalid slippage format: '{}' - {}",
+                    slippage, e
+                )));
             }
         };
 
@@ -999,7 +1043,7 @@ impl McpSdkAdapter {
 
         // First, get the pool information to determine the asset denoms
         let pool_info = self.get_pool(&pool_id).await?;
-        
+
         // Extract asset denoms from pool info
         let assets_array = pool_info
             .get("assets")
@@ -1018,16 +1062,12 @@ impl McpSdkAdapter {
         let asset_a_denom = assets_array[0]
             .get("denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                McpServerError::InvalidArguments("Invalid asset A denom".to_string())
-            })?;
+            .ok_or_else(|| McpServerError::InvalidArguments("Invalid asset A denom".to_string()))?;
 
         let asset_b_denom = assets_array[1]
             .get("denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                McpServerError::InvalidArguments("Invalid asset B denom".to_string())
-            })?;
+            .ok_or_else(|| McpServerError::InvalidArguments("Invalid asset B denom".to_string()))?;
 
         // Construct the assets array for the provide_liquidity call
         let assets_json = serde_json::json!([
@@ -1063,9 +1103,12 @@ impl McpSdkAdapter {
             if let Some(liquidity_details) = result.get("liquidity_details") {
                 let mut details = liquidity_details.clone();
                 if let Some(details_obj) = details.as_object_mut() {
-                    details_obj.insert("min_lp_tokens".to_string(), serde_json::Value::String(min_lp));
+                    details_obj.insert(
+                        "min_lp_tokens".to_string(),
+                        serde_json::Value::String(min_lp),
+                    );
                 }
-                
+
                 let mut modified_result = result.clone();
                 if let Some(result_obj) = modified_result.as_object_mut() {
                     result_obj.insert("liquidity_details".to_string(), details);
@@ -1328,7 +1371,7 @@ impl McpSdkAdapter {
 
         // Poll the transaction with timeout
         let poll_interval = Duration::from_secs(2);
-        
+
         loop {
             // Check if we've exceeded the timeout
             if start_time.elapsed() > timeout {
@@ -1348,7 +1391,7 @@ impl McpSdkAdapter {
                     if let Some(tx_result_obj) = tx_result.get("tx_result") {
                         if let Some(code) = tx_result_obj.get("code").and_then(|c| c.as_u64()) {
                             let status = if code == 0 { "success" } else { "failed" };
-                            
+
                             return Ok(serde_json::json!({
                                 "status": status,
                                 "tx_hash": tx_hash,
@@ -1363,9 +1406,12 @@ impl McpSdkAdapter {
                             }));
                         }
                     }
-                    
+
                     // If we can't determine the status, but got a result, it's likely pending
-                    debug!("Transaction {} found but status unclear, continuing to monitor", tx_hash);
+                    debug!(
+                        "Transaction {} found but status unclear, continuing to monitor",
+                        tx_hash
+                    );
                 }
                 Err(e) => {
                     // If the transaction is not found, it might still be pending
@@ -1384,7 +1430,10 @@ impl McpSdkAdapter {
         tool_name: &str,
         parameters: &HashMap<String, String>,
     ) -> McpResult<Value> {
-        debug!("SDK Adapter: Executing custom tool: {} with parameters: {:?}", tool_name, parameters);
+        debug!(
+            "SDK Adapter: Executing custom tool: {} with parameters: {:?}",
+            tool_name, parameters
+        );
 
         // Convert string parameters to serde_json::Value
         let mut json_params = serde_json::Map::new();
@@ -1411,8 +1460,11 @@ impl McpSdkAdapter {
                 self.get_balances(&network_config, wallet_address).await
             }
             "get_pool" => {
-                let pool_id = parameters.get("pool_id")
-                    .ok_or_else(|| McpServerError::InvalidArguments("pool_id parameter required".to_string()))?
+                let pool_id = parameters
+                    .get("pool_id")
+                    .ok_or_else(|| {
+                        McpServerError::InvalidArguments("pool_id parameter required".to_string())
+                    })?
                     .clone();
                 self.get_pool_info(pool_id).await
             }
@@ -1427,12 +1479,16 @@ impl McpSdkAdapter {
             "get_contracts" => self.get_contract_addresses().await,
             "monitor_transaction" => {
                 // Special handling for monitor_transaction which needs different parameters
-                let tx_hash = parameters.get("tx_hash")
-                    .ok_or_else(|| McpServerError::InvalidArguments("tx_hash parameter required".to_string()))?
+                let tx_hash = parameters
+                    .get("tx_hash")
+                    .ok_or_else(|| {
+                        McpServerError::InvalidArguments("tx_hash parameter required".to_string())
+                    })?
                     .clone();
-                let timeout_seconds = parameters.get("timeout")
+                let timeout_seconds = parameters
+                    .get("timeout")
                     .and_then(|t| t.parse::<u64>().ok());
-                
+
                 self.monitor_transaction(tx_hash, timeout_seconds).await
             }
             _ => {
@@ -1459,9 +1515,10 @@ impl McpSdkAdapter {
             McpServerError::Internal(format!("Failed to load network constants: {}", e))
         })?;
 
-        let network_config = MantraNetworkConfig::from_constants(&network_constants).map_err(|e| {
-            McpServerError::Internal(format!("Failed to create network config: {}", e))
-        })?;
+        let network_config =
+            MantraNetworkConfig::from_constants(&network_constants).map_err(|e| {
+                McpServerError::Internal(format!("Failed to create network config: {}", e))
+            })?;
         Ok(network_config)
     }
 
@@ -1801,19 +1858,20 @@ impl McpSdkAdapter {
             .and_then(|s| Decimal::from_str(s).ok());
 
         // Get wallet (use provided wallet_address or active wallet)
-        let wallet = if let Some(wallet_address) = args.get("wallet_address").and_then(|v| v.as_str()) {
-            match self.get_wallet_by_address(wallet_address).await? {
-                Some(wallet) => wallet,
-                None => {
-                    return Err(McpServerError::InvalidArguments(format!(
-                        "Wallet with address {} not found",
-                        wallet_address
-                    )));
+        let wallet =
+            if let Some(wallet_address) = args.get("wallet_address").and_then(|v| v.as_str()) {
+                match self.get_wallet_by_address(wallet_address).await? {
+                    Some(wallet) => wallet,
+                    None => {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "Wallet with address {} not found",
+                            wallet_address
+                        )));
+                    }
                 }
-            }
-        } else {
-            self.get_active_wallet_with_validation().await?
-        };
+            } else {
+                self.get_active_wallet_with_validation().await?
+            };
 
         // Get network config and client with wallet
         let network_config = self.get_default_network_config().await?;
@@ -1876,19 +1934,20 @@ impl McpSdkAdapter {
             .map_err(|e| McpServerError::InvalidArguments(format!("Invalid LP amount: {}", e)))?;
 
         // Get wallet (use provided wallet_address or active wallet)
-        let wallet = if let Some(wallet_address) = args.get("wallet_address").and_then(|v| v.as_str()) {
-            match self.get_wallet_by_address(wallet_address).await? {
-                Some(wallet) => wallet,
-                None => {
-                    return Err(McpServerError::InvalidArguments(format!(
-                        "Wallet with address {} not found",
-                        wallet_address
-                    )));
+        let wallet =
+            if let Some(wallet_address) = args.get("wallet_address").and_then(|v| v.as_str()) {
+                match self.get_wallet_by_address(wallet_address).await? {
+                    Some(wallet) => wallet,
+                    None => {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "Wallet with address {} not found",
+                            wallet_address
+                        )));
+                    }
                 }
-            }
-        } else {
-            self.get_active_wallet_with_validation().await?
-        };
+            } else {
+                self.get_active_wallet_with_validation().await?
+            };
 
         // Get network config and client with wallet
         let network_config = self.get_default_network_config().await?;
@@ -2054,19 +2113,20 @@ impl McpSdkAdapter {
             .and_then(|s| Decimal::from_str(s).ok());
 
         // Get wallet (use provided wallet_address or active wallet)
-        let wallet = if let Some(wallet_address) = args.get("wallet_address").and_then(|v| v.as_str()) {
-            match self.get_wallet_by_address(wallet_address).await? {
-                Some(wallet) => wallet,
-                None => {
-                    return Err(McpServerError::InvalidArguments(format!(
-                        "Wallet with address {} not found",
-                        wallet_address
-                    )));
+        let wallet =
+            if let Some(wallet_address) = args.get("wallet_address").and_then(|v| v.as_str()) {
+                match self.get_wallet_by_address(wallet_address).await? {
+                    Some(wallet) => wallet,
+                    None => {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "Wallet with address {} not found",
+                            wallet_address
+                        )));
+                    }
                 }
-            }
-        } else {
-            self.get_active_wallet_with_validation().await?
-        };
+            } else {
+                self.get_active_wallet_with_validation().await?
+            };
 
         // Get network config and client with wallet
         let network_config = self.get_default_network_config().await?;
@@ -2613,7 +2673,10 @@ impl McpSdkAdapter {
                         ));
                     }
                     // Validate tx_hash format (should be hex)
-                    if !tx_hash.chars().all(|c| c.is_ascii_hexdigit() || c.is_ascii_uppercase()) {
+                    if !tx_hash
+                        .chars()
+                        .all(|c| c.is_ascii_hexdigit() || c.is_ascii_uppercase())
+                    {
                         return Err(McpServerError::InvalidArguments(
                             "tx_hash must contain only hexadecimal characters".to_string(),
                         ));
@@ -2623,7 +2686,7 @@ impl McpSdkAdapter {
                         "tx_hash parameter is required".to_string(),
                     ));
                 }
-                
+
                 // Validate timeout if present
                 if let Some(timeout) = parameters.get("timeout") {
                     if let Ok(timeout_val) = timeout.parse::<u64>() {
@@ -2644,7 +2707,8 @@ impl McpSdkAdapter {
                 if let Some(wallet_addr) = parameters.get("wallet_address") {
                     if !wallet_addr.trim().is_empty() && !wallet_addr.starts_with("mantra") {
                         return Err(McpServerError::InvalidArguments(
-                            "wallet_address must be a valid Mantra address (starts with 'mantra')".to_string(),
+                            "wallet_address must be a valid Mantra address (starts with 'mantra')"
+                                .to_string(),
                         ));
                     }
                 }
@@ -2654,17 +2718,19 @@ impl McpSdkAdapter {
                 for required_param in &["asset_in", "asset_out", "amount_in"] {
                     if let Some(value) = parameters.get(*required_param) {
                         if value.trim().is_empty() {
-                            return Err(McpServerError::InvalidArguments(
-                                format!("{} cannot be empty", required_param),
-                            ));
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
                         }
                     } else {
-                        return Err(McpServerError::InvalidArguments(
-                            format!("{} parameter is required", required_param),
-                        ));
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
                     }
                 }
-                
+
                 // Validate amount_in is numeric
                 if let Some(amount) = parameters.get("amount_in") {
                     if amount.parse::<f64>().is_err() {
@@ -2673,7 +2739,7 @@ impl McpSdkAdapter {
                         ));
                     }
                 }
-                
+
                 // Validate slippage_tolerance if present
                 if let Some(slippage) = parameters.get("slippage_tolerance") {
                     if let Ok(slippage_val) = slippage.parse::<f64>() {
@@ -2694,14 +2760,16 @@ impl McpSdkAdapter {
                 for required_param in &["pool_id", "amount"] {
                     if let Some(value) = parameters.get(*required_param) {
                         if value.trim().is_empty() {
-                            return Err(McpServerError::InvalidArguments(
-                                format!("{} cannot be empty", required_param),
-                            ));
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
                         }
                     } else {
-                        return Err(McpServerError::InvalidArguments(
-                            format!("{} parameter is required", required_param),
-                        ));
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
                     }
                 }
             }
@@ -2710,14 +2778,16 @@ impl McpSdkAdapter {
                 for required_param in &["asset_a", "asset_b", "amount_a", "amount_b"] {
                     if let Some(value) = parameters.get(*required_param) {
                         if value.trim().is_empty() {
-                            return Err(McpServerError::InvalidArguments(
-                                format!("{} cannot be empty", required_param),
-                            ));
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
                         }
                     } else {
-                        return Err(McpServerError::InvalidArguments(
-                            format!("{} parameter is required", required_param),
-                        ));
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
                     }
                 }
             }
@@ -2725,9 +2795,10 @@ impl McpSdkAdapter {
                 // For other tools, perform basic validation
                 for (key, value) in parameters {
                     if value.trim().is_empty() {
-                        return Err(McpServerError::InvalidArguments(
-                            format!("Parameter '{}' cannot be empty", key),
-                        ));
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "Parameter '{}' cannot be empty",
+                            key
+                        )));
                     }
                 }
             }
@@ -2741,13 +2812,18 @@ impl McpSdkAdapter {
 
     /// Create a new claimdrop campaign through the factory
     pub async fn claimdrop_create_campaign(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Creating ClaimDrop campaign with args: {:?}", args);
+        debug!(
+            "SDK Adapter: Creating ClaimDrop campaign with args: {:?}",
+            args
+        );
 
         // Parse required parameters
         let factory_address = args
             .get("factory_address")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("factory_address is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("factory_address is required".to_string())
+            })?;
 
         let name = args
             .get("name")
@@ -2757,7 +2833,9 @@ impl McpSdkAdapter {
         let description = args
             .get("description")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("description is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("description is required".to_string())
+            })?;
 
         let campaign_type = args
             .get("type")
@@ -2767,7 +2845,9 @@ impl McpSdkAdapter {
         let start_time = args
             .get("start_time")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| McpServerError::InvalidArguments("start_time is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("start_time is required".to_string())
+            })?;
 
         let end_time = args
             .get("end_time")
@@ -2777,12 +2857,16 @@ impl McpSdkAdapter {
         let reward_denom = args
             .get("reward_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("reward_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("reward_denom is required".to_string())
+            })?;
 
         let total_reward_str = args
             .get("total_reward")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("total_reward is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("total_reward is required".to_string())
+            })?;
 
         let total_reward = Uint128::from_str(total_reward_str).map_err(|e| {
             McpServerError::InvalidArguments(format!("Invalid total_reward: {}", e))
@@ -2792,51 +2876,89 @@ impl McpSdkAdapter {
         let distribution_type = args
             .get("distribution_type")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| McpServerError::InvalidArguments("distribution_type is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("distribution_type is required".to_string())
+            })?;
 
         let mut parsed_distributions = Vec::new();
         for dist in distribution_type {
-            let dist_type = dist.get("type").and_then(|v| v.as_str())
-                .ok_or_else(|| McpServerError::InvalidArguments("distribution_type.type is required".to_string()))?;
-            
+            let dist_type = dist.get("type").and_then(|v| v.as_str()).ok_or_else(|| {
+                McpServerError::InvalidArguments("distribution_type.type is required".to_string())
+            })?;
+
             match dist_type {
                 "lump_sum" => {
-                    let percentage = dist.get("percentage").and_then(|v| v.as_str())
-                        .ok_or_else(|| McpServerError::InvalidArguments("distribution percentage is required".to_string()))?;
+                    let percentage =
+                        dist.get("percentage")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                McpServerError::InvalidArguments(
+                                    "distribution percentage is required".to_string(),
+                                )
+                            })?;
                     let percentage_decimal = Decimal::from_str(percentage).map_err(|e| {
                         McpServerError::InvalidArguments(format!("Invalid percentage: {}", e))
                     })?;
-                    let start_time = dist.get("start_time").and_then(|v| v.as_u64())
-                        .ok_or_else(|| McpServerError::InvalidArguments("distribution start_time is required".to_string()))?;
-                    
-                    parsed_distributions.push(mantra_claimdrop_std::msg::DistributionType::LumpSum {
-                        percentage: percentage_decimal,
-                        start_time,
-                    });
+                    let start_time =
+                        dist.get("start_time")
+                            .and_then(|v| v.as_u64())
+                            .ok_or_else(|| {
+                                McpServerError::InvalidArguments(
+                                    "distribution start_time is required".to_string(),
+                                )
+                            })?;
+
+                    parsed_distributions.push(
+                        mantra_claimdrop_std::msg::DistributionType::LumpSum {
+                            percentage: percentage_decimal,
+                            start_time,
+                        },
+                    );
                 }
                 "linear_vesting" => {
-                    let percentage = dist.get("percentage").and_then(|v| v.as_str())
-                        .ok_or_else(|| McpServerError::InvalidArguments("distribution percentage is required".to_string()))?;
+                    let percentage =
+                        dist.get("percentage")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                McpServerError::InvalidArguments(
+                                    "distribution percentage is required".to_string(),
+                                )
+                            })?;
                     let percentage_decimal = Decimal::from_str(percentage).map_err(|e| {
                         McpServerError::InvalidArguments(format!("Invalid percentage: {}", e))
                     })?;
-                    let start_time = dist.get("start_time").and_then(|v| v.as_u64())
-                        .ok_or_else(|| McpServerError::InvalidArguments("distribution start_time is required".to_string()))?;
-                    let end_time = dist.get("end_time").and_then(|v| v.as_u64())
-                        .ok_or_else(|| McpServerError::InvalidArguments("distribution end_time is required".to_string()))?;
+                    let start_time =
+                        dist.get("start_time")
+                            .and_then(|v| v.as_u64())
+                            .ok_or_else(|| {
+                                McpServerError::InvalidArguments(
+                                    "distribution start_time is required".to_string(),
+                                )
+                            })?;
+                    let end_time =
+                        dist.get("end_time")
+                            .and_then(|v| v.as_u64())
+                            .ok_or_else(|| {
+                                McpServerError::InvalidArguments(
+                                    "distribution end_time is required".to_string(),
+                                )
+                            })?;
                     let cliff_duration = dist.get("cliff_duration").and_then(|v| v.as_u64());
-                    
-                    parsed_distributions.push(mantra_claimdrop_std::msg::DistributionType::LinearVesting {
-                        percentage: percentage_decimal,
-                        start_time,
-                        end_time,
-                        cliff_duration,
-                    });
+
+                    parsed_distributions.push(
+                        mantra_claimdrop_std::msg::DistributionType::LinearVesting {
+                            percentage: percentage_decimal,
+                            start_time,
+                            end_time,
+                            cliff_duration,
+                        },
+                    );
                 }
                 _ => {
-                    return Err(McpServerError::InvalidArguments(
-                        format!("Invalid distribution type: {}", dist_type)
-                    ));
+                    return Err(McpServerError::InvalidArguments(format!(
+                        "Invalid distribution type: {}",
+                        dist_type
+                    )));
                 }
             }
         }
@@ -2844,9 +2966,10 @@ impl McpSdkAdapter {
         // Get network config and active wallet
         let network_config = self.get_default_network_config().await?;
         let wallet = self.get_active_wallet_with_validation().await?;
-        
+
         // Create MantraClient with wallet
-        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet))).await
+        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet)))
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Create campaign parameters
@@ -2866,7 +2989,7 @@ impl McpSdkAdapter {
 
         // Get factory client and create campaign
         let factory_client = client.claimdrop_factory(factory_address.to_string());
-        
+
         // Use default fee for now
         let fee = cosmrs::tx::Fee::from_amount_and_gas(
             cosmrs::Coin {
@@ -2876,7 +2999,9 @@ impl McpSdkAdapter {
             200_000u64,
         );
 
-        let result = factory_client.create_campaign(campaign_params, fee).await
+        let result = factory_client
+            .create_campaign(campaign_params, fee)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -2890,13 +3015,18 @@ impl McpSdkAdapter {
 
     /// Claim rewards from a claimdrop campaign
     pub async fn claimdrop_claim(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Claiming from ClaimDrop campaign with args: {:?}", args);
+        debug!(
+            "SDK Adapter: Claiming from ClaimDrop campaign with args: {:?}",
+            args
+        );
 
         // Parse required parameters
         let campaign_address = args
             .get("campaign_address")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("campaign_address is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("campaign_address is required".to_string())
+            })?;
 
         // Parse optional parameters
         let amount = args
@@ -2912,9 +3042,10 @@ impl McpSdkAdapter {
         // Get network config and active wallet
         let network_config = self.get_default_network_config().await?;
         let wallet = self.get_active_wallet_with_validation().await?;
-        
+
         // Create MantraClient with wallet
-        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet))).await
+        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet)))
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get ClaimDrop client for the campaign
@@ -2929,7 +3060,9 @@ impl McpSdkAdapter {
             150_000u64,
         );
 
-        let result = claimdrop_client.claim(amount, receiver, fee).await
+        let result = claimdrop_client
+            .claim(amount, receiver, fee)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -2943,13 +3076,18 @@ impl McpSdkAdapter {
 
     /// Query user rewards from a claimdrop campaign
     pub async fn claimdrop_query_rewards(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Querying ClaimDrop rewards with args: {:?}", args);
+        debug!(
+            "SDK Adapter: Querying ClaimDrop rewards with args: {:?}",
+            args
+        );
 
         // Parse required parameters
         let campaign_address = args
             .get("campaign_address")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("campaign_address is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("campaign_address is required".to_string())
+            })?;
 
         let receiver_address = args
             .get("receiver")
@@ -2958,13 +3096,16 @@ impl McpSdkAdapter {
 
         // Get network config and create MantraClient
         let network_config = self.get_default_network_config().await?;
-        let client = MantraClient::new(network_config.clone(), None).await
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get ClaimDrop client for the campaign
         let claimdrop_client = client.claimdrop_campaign(campaign_address.to_string());
 
-        let rewards = claimdrop_client.query_rewards(receiver_address).await
+        let rewards = claimdrop_client
+            .query_rewards(receiver_address)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -2979,33 +3120,36 @@ impl McpSdkAdapter {
 
     /// Query campaigns from factory
     pub async fn claimdrop_query_campaigns(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Querying ClaimDrop campaigns with args: {:?}", args);
+        debug!(
+            "SDK Adapter: Querying ClaimDrop campaigns with args: {:?}",
+            args
+        );
 
         // Parse required parameters
         let factory_address = args
             .get("factory_address")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("factory_address is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("factory_address is required".to_string())
+            })?;
 
         // Parse optional parameters
-        let start_after = args
-            .get("start_after")
-            .and_then(|v| v.as_str());
+        let start_after = args.get("start_after").and_then(|v| v.as_str());
 
-        let limit = args
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .map(|l| l as u16);
+        let limit = args.get("limit").and_then(|v| v.as_u64()).map(|l| l as u16);
 
         // Get network config and create MantraClient
         let network_config = self.get_default_network_config().await?;
-        let client = MantraClient::new(network_config.clone(), None).await
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get factory client
         let factory_client = client.claimdrop_factory(factory_address.to_string());
 
-        let campaigns = factory_client.query_campaigns(start_after, limit).await
+        let campaigns = factory_client
+            .query_campaigns(start_after, limit)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -3019,27 +3163,44 @@ impl McpSdkAdapter {
 
     /// Add allocations to a claimdrop campaign
     pub async fn claimdrop_add_allocations(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Adding ClaimDrop allocations with args: {:?}", args);
+        debug!(
+            "SDK Adapter: Adding ClaimDrop allocations with args: {:?}",
+            args
+        );
 
         // Parse required parameters
         let campaign_address = args
             .get("campaign_address")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("campaign_address is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("campaign_address is required".to_string())
+            })?;
 
         let allocations_array = args
             .get("allocations")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| McpServerError::InvalidArguments("allocations is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("allocations is required".to_string())
+            })?;
 
         // Parse allocations
         let mut allocations = Vec::new();
         for allocation in allocations_array {
-            let user = allocation.get("user").and_then(|v| v.as_str())
-                .ok_or_else(|| McpServerError::InvalidArguments("allocation.user is required".to_string()))?;
-            let amount_str = allocation.get("allocated_amount").and_then(|v| v.as_str())
-                .ok_or_else(|| McpServerError::InvalidArguments("allocation.allocated_amount is required".to_string()))?;
-            
+            let user = allocation
+                .get("user")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    McpServerError::InvalidArguments("allocation.user is required".to_string())
+                })?;
+            let amount_str = allocation
+                .get("allocated_amount")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    McpServerError::InvalidArguments(
+                        "allocation.allocated_amount is required".to_string(),
+                    )
+                })?;
+
             let amount = Uint128::from_str(amount_str).map_err(|e| {
                 McpServerError::InvalidArguments(format!("Invalid allocated_amount: {}", e))
             })?;
@@ -3053,9 +3214,10 @@ impl McpSdkAdapter {
         // Get network config and active wallet
         let network_config = self.get_default_network_config().await?;
         let wallet = self.get_active_wallet_with_validation().await?;
-        
+
         // Create MantraClient with wallet
-        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet))).await
+        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet)))
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get ClaimDrop client for the campaign
@@ -3070,7 +3232,9 @@ impl McpSdkAdapter {
             200_000u64,
         );
 
-        let result = claimdrop_client.add_allocations(allocations, fee).await
+        let result = claimdrop_client
+            .add_allocations(allocations, fee)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -3094,31 +3258,47 @@ impl McpSdkAdapter {
         let source_asset_denom = args
             .get("source_asset_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_asset_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_asset_denom is required".to_string())
+            })?;
 
         let source_asset_amount = args
             .get("source_asset_amount")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_asset_amount is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_asset_amount is required".to_string())
+            })?;
 
         let source_chain = args
             .get("source_chain")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_chain is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_chain is required".to_string())
+            })?;
 
         let target_asset_denom = args
             .get("target_asset_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("target_asset_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("target_asset_denom is required".to_string())
+            })?;
 
         let target_chain = args
             .get("target_chain")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("target_chain is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("target_chain is required".to_string())
+            })?;
 
         // Optional parameters
-        let allow_multi_tx = args.get("allow_multi_tx").and_then(|v| v.as_bool()).unwrap_or(false);
-        let smart_relay = args.get("smart_relay").and_then(|v| v.as_bool()).unwrap_or(true);
+        let allow_multi_tx = args
+            .get("allow_multi_tx")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let smart_relay = args
+            .get("smart_relay")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
         // Parse amount
         let amount = Uint128::from_str(source_asset_amount).map_err(|e| {
@@ -3127,14 +3307,14 @@ impl McpSdkAdapter {
 
         // Get network config
         let network_config = self.get_default_network_config().await?;
-        
-        // Create MantraClient  
-        let client = MantraClient::new(network_config.clone(), None).await
+
+        // Create MantraClient
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get Skip client
-        let skip_client = client.skip().await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let skip_client = client.skip().await.map_err(|e| McpServerError::Sdk(e))?;
 
         // Create source and target assets
         use crate::protocols::skip::types::CrossChainAsset;
@@ -3164,7 +3344,9 @@ impl McpSdkAdapter {
         });
 
         // Get routes
-        let routes = skip_client.get_route(&source_asset, &target_asset, options).await
+        let routes = skip_client
+            .get_route(&source_asset, &target_asset, options)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -3193,27 +3375,37 @@ impl McpSdkAdapter {
         let source_asset_denom = args
             .get("source_asset_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_asset_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_asset_denom is required".to_string())
+            })?;
 
         let source_asset_amount = args
             .get("source_asset_amount")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_asset_amount is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_asset_amount is required".to_string())
+            })?;
 
         let source_chain = args
             .get("source_chain")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_chain is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_chain is required".to_string())
+            })?;
 
         let target_asset_denom = args
             .get("target_asset_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("target_asset_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("target_asset_denom is required".to_string())
+            })?;
 
         let target_chain = args
             .get("target_chain")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("target_chain is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("target_chain is required".to_string())
+            })?;
 
         let recipient = args
             .get("recipient")
@@ -3222,7 +3414,8 @@ impl McpSdkAdapter {
 
         // Optional parameters
         let timeout_seconds = args.get("timeout_seconds").and_then(|v| v.as_u64());
-        let slippage_tolerance = args.get("slippage_tolerance")
+        let slippage_tolerance = args
+            .get("slippage_tolerance")
             .and_then(|v| v.as_str())
             .and_then(|s| Decimal::from_str(s).ok());
 
@@ -3234,14 +3427,14 @@ impl McpSdkAdapter {
         // Get network config and wallet
         let network_config = self.get_default_network_config().await?;
         let wallet = self.get_active_wallet_with_validation().await?;
-        
+
         // Create MantraClient with wallet
-        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet))).await
+        let client = MantraClient::new(network_config.clone(), Some(Arc::new(wallet)))
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get Skip client
-        let skip_client = client.skip().await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let skip_client = client.skip().await.map_err(|e| McpServerError::Sdk(e))?;
 
         // Create transfer request
         use crate::protocols::skip::types::{CrossChainAsset, TransferRequest};
@@ -3271,7 +3464,9 @@ impl McpSdkAdapter {
         };
 
         // Execute transfer
-        let result = skip_client.execute_cross_chain_transfer(&transfer_request).await
+        let result = skip_client
+            .execute_cross_chain_transfer(&transfer_request)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -3293,21 +3488,25 @@ impl McpSdkAdapter {
         let transfer_id = args
             .get("transfer_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("transfer_id is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("transfer_id is required".to_string())
+            })?;
 
         // Get network config
         let network_config = self.get_default_network_config().await?;
-        
+
         // Create MantraClient
-        let client = MantraClient::new(network_config.clone(), None).await
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get Skip client
-        let skip_client = client.skip().await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let skip_client = client.skip().await.map_err(|e| McpServerError::Sdk(e))?;
 
         // Track transfer
-        let result = skip_client.track_transfer(transfer_id).await
+        let result = skip_client
+            .track_transfer(transfer_id)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -3327,31 +3526,42 @@ impl McpSdkAdapter {
 
     /// List available chains and their configurations
     pub async fn skip_get_supported_chains(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Getting supported chains with args: {:?}", args);
+        debug!(
+            "SDK Adapter: Getting supported chains with args: {:?}",
+            args
+        );
 
         // Optional filter parameter
         let filter = args.get("filter").and_then(|v| v.as_str());
 
         // Get network config
         let network_config = self.get_default_network_config().await?;
-        
+
         // Create MantraClient
-        let client = MantraClient::new(network_config.clone(), None).await
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get Skip client
-        let skip_client = client.skip().await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let skip_client = client.skip().await.map_err(|e| McpServerError::Sdk(e))?;
 
         // Get supported chains
-        let mut chains = skip_client.get_supported_chains().await
+        let mut chains = skip_client
+            .get_supported_chains()
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Apply filter if provided
         if let Some(filter_str) = filter {
             chains.retain(|chain| {
-                chain.chain_name.to_lowercase().contains(&filter_str.to_lowercase()) ||
-                chain.chain_id.to_lowercase().contains(&filter_str.to_lowercase())
+                chain
+                    .chain_name
+                    .to_lowercase()
+                    .contains(&filter_str.to_lowercase())
+                    || chain
+                        .chain_id
+                        .to_lowercase()
+                        .contains(&filter_str.to_lowercase())
             });
         }
 
@@ -3373,22 +3583,28 @@ impl McpSdkAdapter {
         let assets_array = args
             .get("assets")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| McpServerError::InvalidArguments("assets array is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("assets array is required".to_string())
+            })?;
 
         // Parse assets
         use crate::protocols::skip::types::CrossChainAsset;
         let mut assets = Vec::new();
-        
+
         for asset_value in assets_array {
             let denom = asset_value
                 .get("denom")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| McpServerError::InvalidArguments("asset.denom is required".to_string()))?;
+                .ok_or_else(|| {
+                    McpServerError::InvalidArguments("asset.denom is required".to_string())
+                })?;
 
             let chain = asset_value
                 .get("chain")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| McpServerError::InvalidArguments("asset.chain is required".to_string()))?;
+                .ok_or_else(|| {
+                    McpServerError::InvalidArguments("asset.chain is required".to_string())
+                })?;
 
             let amount_str = asset_value
                 .get("amount")
@@ -3403,24 +3619,32 @@ impl McpSdkAdapter {
                 denom: denom.to_string(),
                 amount,
                 chain: chain.to_string(),
-                decimals: asset_value.get("decimals").and_then(|v| v.as_u64()).map(|d| d as u8),
-                symbol: asset_value.get("symbol").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                decimals: asset_value
+                    .get("decimals")
+                    .and_then(|v| v.as_u64())
+                    .map(|d| d as u8),
+                symbol: asset_value
+                    .get("symbol")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             });
         }
 
         // Get network config
         let network_config = self.get_default_network_config().await?;
-        
+
         // Create MantraClient
-        let client = MantraClient::new(network_config.clone(), None).await
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get Skip client
-        let skip_client = client.skip().await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let skip_client = client.skip().await.map_err(|e| McpServerError::Sdk(e))?;
 
         // Verify assets
-        let verification_result = skip_client.verify_assets(&assets).await
+        let verification_result = skip_client
+            .verify_assets(&assets)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({
@@ -3446,27 +3670,37 @@ impl McpSdkAdapter {
         let source_asset_denom = args
             .get("source_asset_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_asset_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_asset_denom is required".to_string())
+            })?;
 
         let source_asset_amount = args
             .get("source_asset_amount")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_asset_amount is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_asset_amount is required".to_string())
+            })?;
 
         let source_chain = args
             .get("source_chain")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("source_chain is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("source_chain is required".to_string())
+            })?;
 
         let target_asset_denom = args
             .get("target_asset_denom")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("target_asset_denom is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("target_asset_denom is required".to_string())
+            })?;
 
         let target_chain = args
             .get("target_chain")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| McpServerError::InvalidArguments("target_chain is required".to_string()))?;
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("target_chain is required".to_string())
+            })?;
 
         let recipient = args
             .get("recipient")
@@ -3480,14 +3714,14 @@ impl McpSdkAdapter {
 
         // Get network config
         let network_config = self.get_default_network_config().await?;
-        
+
         // Create MantraClient
-        let client = MantraClient::new(network_config.clone(), None).await
+        let client = MantraClient::new(network_config.clone(), None)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         // Get Skip client
-        let skip_client = client.skip().await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let skip_client = client.skip().await.map_err(|e| McpServerError::Sdk(e))?;
 
         // Create transfer request for fee estimation
         use crate::protocols::skip::types::{CrossChainAsset, TransferRequest};
@@ -3517,7 +3751,9 @@ impl McpSdkAdapter {
         };
 
         // Estimate fees
-        let fee_estimate = skip_client.estimate_fees(&transfer_request).await
+        let fee_estimate = skip_client
+            .estimate_fees(&transfer_request)
+            .await
             .map_err(|e| McpServerError::Sdk(e))?;
 
         Ok(serde_json::json!({

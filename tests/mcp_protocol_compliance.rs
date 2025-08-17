@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
 /// Test module for MCP protocol compliance
-/// 
+///
 /// This module implements comprehensive tests for JSON-RPC 2.0 compliance
 /// as required by the MCP specification. It validates request/response formatting,
 /// error handling, tool registration, and serialization edge cases.
@@ -63,14 +63,14 @@ async fn test_jsonrpc_request_format_compliance() {
         params: None,
         id: json!(1),
     };
-    
+
     let serialized = serde_json::to_string(&valid_request).unwrap();
     let deserialized: JsonRpcRequest = serde_json::from_str(&serialized).unwrap();
-    
+
     assert_eq!(deserialized.jsonrpc, "2.0");
     assert_eq!(deserialized.method, "tools/list");
     assert_eq!(deserialized.id, json!(1));
-    
+
     // Test 2: String ID support
     let string_id_request = JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -81,11 +81,11 @@ async fn test_jsonrpc_request_format_compliance() {
         })),
         id: json!("test-id-123"),
     };
-    
+
     let serialized = serde_json::to_string(&string_id_request).unwrap();
     let deserialized: JsonRpcRequest = serde_json::from_str(&serialized).unwrap();
     assert_eq!(deserialized.id, json!("test-id-123"));
-    
+
     // Test 3: Null ID support (notification)
     let null_id_request = JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -93,7 +93,7 @@ async fn test_jsonrpc_request_format_compliance() {
         params: None,
         id: Value::Null,
     };
-    
+
     let serialized = serde_json::to_string(&null_id_request).unwrap();
     let deserialized: JsonRpcRequest = serde_json::from_str(&serialized).unwrap();
     assert_eq!(deserialized.id, Value::Null);
@@ -120,15 +120,15 @@ async fn test_jsonrpc_response_format_compliance() {
         })),
         error: None,
     };
-    
+
     let serialized = serde_json::to_string(&success_response).unwrap();
     let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-    
+
     assert_eq!(deserialized.jsonrpc, "2.0");
     assert_eq!(deserialized.id, json!(1));
     assert!(deserialized.result.is_some());
     assert!(deserialized.error.is_none());
-    
+
     // Test 2: Error response format
     let error_response = JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
@@ -143,15 +143,15 @@ async fn test_jsonrpc_response_format_compliance() {
             })),
         }),
     };
-    
+
     let serialized = serde_json::to_string(&error_response).unwrap();
     let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-    
+
     assert_eq!(deserialized.jsonrpc, "2.0");
     assert_eq!(deserialized.id, json!(2));
     assert!(deserialized.result.is_none());
     assert!(deserialized.error.is_some());
-    
+
     let error = deserialized.error.unwrap();
     assert_eq!(error.code, -32601);
     assert_eq!(error.message, "Method not found");
@@ -175,24 +175,24 @@ async fn test_jsonrpc_error_codes_compliance() {
         (-32005, "Resource not found"),
         (-32006, "Configuration error"),
     ];
-    
+
     for (code, message) in error_codes {
         let error = JsonRpcError {
             code,
             message: message.to_string(),
             data: None,
         };
-        
+
         let response = JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id: json!(1),
             result: None,
             error: Some(error),
         };
-        
+
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-        
+
         let error = deserialized.error.unwrap();
         assert_eq!(error.code, code);
         assert_eq!(error.message, message);
@@ -212,7 +212,7 @@ async fn test_mcp_method_names_compliance() {
         "notifications/initialized",
         "notifications/roots_list_changed",
     ];
-    
+
     for method in required_methods {
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -220,10 +220,10 @@ async fn test_mcp_method_names_compliance() {
             params: None,
             id: json!(1),
         };
-        
+
         let serialized = serde_json::to_string(&request).unwrap();
         let deserialized: JsonRpcRequest = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.method, method);
         assert_eq!(deserialized.jsonrpc, "2.0");
     }
@@ -242,11 +242,11 @@ async fn test_tools_list_payload_compliance() {
         params: None,
         id: json!(1),
     };
-    
+
     let serialized = serde_json::to_string(&request).unwrap();
     assert!(serialized.contains("\"method\":\"tools/list\""));
     assert!(serialized.contains("\"jsonrpc\":\"2.0\""));
-    
+
     // Test tools/list response with comprehensive tool definitions
     let tools = vec![
         McpToolDefinition {
@@ -286,7 +286,7 @@ async fn test_tools_list_payload_compliance() {
             }),
         },
     ];
-    
+
     let response = JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
         id: json!(1),
@@ -295,23 +295,23 @@ async fn test_tools_list_payload_compliance() {
         })),
         error: None,
     };
-    
+
     let serialized = serde_json::to_string(&response).unwrap();
     let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-    
+
     assert!(deserialized.result.is_some());
     let result = deserialized.result.unwrap();
     assert!(result.get("tools").is_some());
-    
+
     let tools_array = result.get("tools").unwrap().as_array().unwrap();
     assert_eq!(tools_array.len(), 3);
-    
+
     // Validate tool schema compliance
     for tool in tools_array {
         assert!(tool.get("name").is_some());
         assert!(tool.get("description").is_some());
         assert!(tool.get("input_schema").is_some());
-        
+
         let schema = tool.get("input_schema").unwrap();
         assert_eq!(schema.get("type").unwrap().as_str().unwrap(), "object");
         assert!(schema.get("properties").is_some());
@@ -357,7 +357,7 @@ async fn test_tools_call_payload_compliance() {
             }
         }),
     ];
-    
+
     for (index, params) in test_cases.iter().enumerate() {
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -365,14 +365,14 @@ async fn test_tools_call_payload_compliance() {
             params: Some(params.clone()),
             id: json!(index + 1),
         };
-        
+
         let serialized = serde_json::to_string(&request).unwrap();
         let deserialized: JsonRpcRequest = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.jsonrpc, "2.0");
         assert_eq!(deserialized.method, "tools/call");
         assert!(deserialized.params.is_some());
-        
+
         let params = deserialized.params.unwrap();
         assert!(params.get("name").is_some());
         assert!(params.get("arguments").is_some());
@@ -388,10 +388,10 @@ async fn test_resources_list_payload_compliance() {
         params: None,
         id: json!(1),
     };
-    
+
     let serialized = serde_json::to_string(&_request).unwrap();
     assert!(serialized.contains("\"method\":\"resources/list\""));
-    
+
     // Test resources/list response
     let resources = vec![
         McpResourceDefinition {
@@ -413,7 +413,7 @@ async fn test_resources_list_payload_compliance() {
             mime_type: Some("application/json".to_string()),
         },
     ];
-    
+
     let response = JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
         id: json!(1),
@@ -422,17 +422,17 @@ async fn test_resources_list_payload_compliance() {
         })),
         error: None,
     };
-    
+
     let serialized = serde_json::to_string(&response).unwrap();
     let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-    
+
     assert!(deserialized.result.is_some());
     let result = deserialized.result.unwrap();
     assert!(result.get("resources").is_some());
-    
+
     let resources_array = result.get("resources").unwrap().as_array().unwrap();
     assert_eq!(resources_array.len(), 3);
-    
+
     // Validate resource schema compliance
     for resource in resources_array {
         assert!(resource.get("uri").is_some());
@@ -449,13 +449,7 @@ async fn test_resources_list_payload_compliance() {
 #[tokio::test]
 async fn test_unknown_method_error_handling() {
     // Test unknown method error
-    let request = JsonRpcRequest {
-        jsonrpc: "2.0".to_string(),
-        method: "unknown/method".to_string(),
-        params: None,
-        id: json!(1),
-    };
-    
+
     let error_response = JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
         id: json!(1),
@@ -476,10 +470,10 @@ async fn test_unknown_method_error_handling() {
             })),
         }),
     };
-    
+
     let serialized = serde_json::to_string(&error_response).unwrap();
     let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-    
+
     assert!(deserialized.error.is_some());
     let error = deserialized.error.unwrap();
     assert_eq!(error.code, -32601);
@@ -520,7 +514,7 @@ async fn test_invalid_params_error_handling() {
             "id": 3
         }),
     ];
-    
+
     for (index, request_data) in invalid_requests.iter().enumerate() {
         let error_response = JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -535,10 +529,10 @@ async fn test_invalid_params_error_handling() {
                 })),
             }),
         };
-        
+
         let serialized = serde_json::to_string(&error_response).unwrap();
         let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-        
+
         assert!(deserialized.error.is_some());
         let error = deserialized.error.unwrap();
         assert_eq!(error.code, -32602);
@@ -565,16 +559,16 @@ async fn test_internal_error_handling() {
             })),
         }),
     };
-    
+
     let serialized = serde_json::to_string(&error_response).unwrap();
     let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-    
+
     assert!(deserialized.error.is_some());
     let error = deserialized.error.unwrap();
     assert_eq!(error.code, -32603);
     assert_eq!(error.message, "Internal error");
     assert!(error.data.is_some());
-    
+
     let data = error.data.unwrap();
     assert!(data.get("error_type").is_some());
     assert!(data.get("is_recoverable").is_some());
@@ -598,10 +592,10 @@ async fn test_serialization_edge_cases() {
         },
         "id": 1
     });
-    
+
     let serialized = serde_json::to_string(&large_number_request).unwrap();
     let _deserialized: Value = serde_json::from_str(&serialized).unwrap();
-    
+
     // Test 2: Unicode strings
     let unicode_request = json!({
         "jsonrpc": "2.0",
@@ -615,10 +609,10 @@ async fn test_serialization_edge_cases() {
         },
         "id": 2
     });
-    
+
     let serialized = serde_json::to_string(&unicode_request).unwrap();
     let _deserialized: Value = serde_json::from_str(&serialized).unwrap();
-    
+
     // Test 3: Nested objects
     let nested_request = json!({
         "jsonrpc": "2.0",
@@ -643,10 +637,10 @@ async fn test_serialization_edge_cases() {
         },
         "id": 3
     });
-    
+
     let serialized = serde_json::to_string(&nested_request).unwrap();
     let _deserialized: Value = serde_json::from_str(&serialized).unwrap();
-    
+
     // Test 4: Array parameters
     let array_request = json!({
         "jsonrpc": "2.0",
@@ -670,10 +664,10 @@ async fn test_serialization_edge_cases() {
         },
         "id": 4
     });
-    
+
     let serialized = serde_json::to_string(&array_request).unwrap();
     let _deserialized: Value = serde_json::from_str(&serialized).unwrap();
-    
+
     // Test 5: Null and optional values
     let null_values_request = json!({
         "jsonrpc": "2.0",
@@ -689,7 +683,7 @@ async fn test_serialization_edge_cases() {
         },
         "id": 5
     });
-    
+
     let serialized = serde_json::to_string(&null_values_request).unwrap();
     let _deserialized: Value = serde_json::from_str(&serialized).unwrap();
 }
@@ -705,26 +699,30 @@ async fn test_malformed_json_handling() {
         // Missing required fields
         r#"{"method": "tools/list", "id": 1}"#,
     ];
-    
+
     for malformed_json in malformed_jsons {
         let result = serde_json::from_str::<JsonRpcRequest>(malformed_json);
-        assert!(result.is_err(), "Expected error for malformed JSON: {}", malformed_json);
+        assert!(
+            result.is_err(),
+            "Expected error for malformed JSON: {}",
+            malformed_json
+        );
     }
-    
+
     // Test valid JSON but invalid protocol version (should parse but fail validation)
     let invalid_version_json = r#"{"jsonrpc": "1.0", "method": "tools/list", "id": 1}"#;
     let result = serde_json::from_str::<JsonRpcRequest>(invalid_version_json);
     assert!(result.is_ok(), "Should parse valid JSON");
-    
+
     let request = result.unwrap();
     assert_eq!(request.jsonrpc, "1.0");
     // In a real implementation, this would be rejected by the server's validation logic
-    
+
     // Test object ID (valid JSON but not recommended for JSON-RPC)
     let object_id_json = r#"{"jsonrpc": "2.0", "method": "tools/list", "id": {"test": true}}"#;
     let result = serde_json::from_str::<JsonRpcRequest>(object_id_json);
     assert!(result.is_ok(), "Should parse valid JSON with object ID");
-    
+
     let request = result.unwrap();
     assert_eq!(request.id, serde_json::json!({"test": true}));
     // In a real implementation, servers should reject object IDs per JSON-RPC spec
@@ -741,7 +739,7 @@ async fn test_response_id_matching() {
         json!(-1),
         json!(9223372036854775807i64), // max i64
     ];
-    
+
     for id in request_ids {
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -749,23 +747,23 @@ async fn test_response_id_matching() {
             params: None,
             id: id.clone(),
         };
-        
+
         let response = JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id: id.clone(),
             result: Some(json!("pong")),
             error: None,
         };
-        
+
         assert_eq!(request.id, response.id);
-        
+
         // Test serialization round-trip
         let serialized_req = serde_json::to_string(&request).unwrap();
         let serialized_resp = serde_json::to_string(&response).unwrap();
-        
+
         let deserialized_req: JsonRpcRequest = serde_json::from_str(&serialized_req).unwrap();
         let deserialized_resp: JsonRpcResponse = serde_json::from_str(&serialized_resp).unwrap();
-        
+
         assert_eq!(deserialized_req.id, deserialized_resp.id);
     }
 }
@@ -778,7 +776,7 @@ async fn test_response_id_matching() {
 async fn test_async_tool_execution() {
     // Test simulated async tool execution
     let start_time = std::time::Instant::now();
-    
+
     // Simulate async tool call
     let tool_future = async {
         sleep(Duration::from_millis(100)).await;
@@ -788,9 +786,9 @@ async fn test_async_tool_execution() {
             "execution_time_ms": start_time.elapsed().as_millis()
         })
     };
-    
+
     let result = tool_future.await;
-    
+
     assert_eq!(result.get("status").unwrap().as_str().unwrap(), "success");
     assert!(result.get("execution_time_ms").is_some());
 }
@@ -804,21 +802,14 @@ async fn test_concurrent_requests() {
         ("ping", json!(null)),
         ("tools/call", json!({"name": "get_pools", "arguments": {}})),
     ];
-    
+
     let mut handles = Vec::new();
-    
-    for (method, params) in requests {
+
+    for (method, _) in requests {
         let handle = tokio::spawn(async move {
-            let request = JsonRpcRequest {
-                jsonrpc: "2.0".to_string(),
-                method: method.to_string(),
-                params: if params.is_null() { None } else { Some(params) },
-                id: json!(1),
-            };
-            
             // Simulate request processing
             sleep(Duration::from_millis(50)).await;
-            
+
             let response = JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: json!(1),
@@ -828,15 +819,15 @@ async fn test_concurrent_requests() {
                 })),
                 error: None,
             };
-            
+
             response
         });
-        
+
         handles.push(handle);
     }
-    
+
     let results = futures::future::join_all(handles).await;
-    
+
     for result in results {
         let response = result.unwrap();
         assert_eq!(response.jsonrpc, "2.0");
@@ -848,19 +839,19 @@ async fn test_concurrent_requests() {
 async fn test_protocol_version_enforcement() {
     // Test that only JSON-RPC 2.0 is supported
     let invalid_versions = vec!["1.0", "2.1", "3.0", "", "invalid"];
-    
+
     for version in invalid_versions {
         let _request = json!({
             "jsonrpc": version,
             "method": "tools/list",
             "id": 1
         });
-        
+
         // This should ideally fail during validation
         // In a real implementation, this would be caught by the server
         let serialized = serde_json::to_string(&_request).unwrap();
         assert!(serialized.contains(&format!("\"jsonrpc\":\"{}\"", version)));
-        
+
         // The server should reject non-2.0 versions
         let error_response = JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -876,10 +867,10 @@ async fn test_protocol_version_enforcement() {
                 })),
             }),
         };
-        
+
         let serialized = serde_json::to_string(&error_response).unwrap();
         let deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-        
+
         assert!(deserialized.error.is_some());
         assert_eq!(deserialized.error.unwrap().code, -32600);
     }
@@ -894,7 +885,7 @@ mod integration_tests {
     use super::*;
     #[cfg(feature = "mcp")]
     use mantra_sdk::mcp::server::McpServerError;
-    
+
     #[tokio::test]
     #[cfg(feature = "mcp")]
     async fn test_mcp_server_error_serialization() {
@@ -906,33 +897,33 @@ mod integration_tests {
             McpServerError::Network("Network connection failed".to_string()),
             McpServerError::Validation("Validation failed".to_string()),
         ];
-        
+
         for error in server_errors {
             let error_code = error.to_json_rpc_error_code();
             let error_data = error.get_error_data();
-            
+
             let json_rpc_error = JsonRpcError {
                 code: error_code,
                 message: error.to_string(),
                 data: error_data,
             };
-            
+
             let response = JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: json!(1),
                 result: None,
                 error: Some(json_rpc_error),
             };
-            
+
             // Ensure it can be serialized and deserialized
             let serialized = serde_json::to_string(&response).unwrap();
             let _deserialized: JsonRpcResponse = serde_json::from_str(&serialized).unwrap();
-            
+
             assert!(error_code < 0); // All error codes should be negative
             assert!(!error.to_string().is_empty()); // Error message should not be empty
         }
     }
-    
+
     #[tokio::test]
     async fn test_tool_schema_validation() {
         // Test that tool schemas are properly validated
@@ -951,17 +942,17 @@ mod integration_tests {
                 "required": ["amount"]
             }),
         ];
-        
+
         for schema in valid_schemas {
             let tool = McpToolDefinition {
                 name: "test_tool".to_string(),
                 description: "Test tool".to_string(),
                 input_schema: schema.clone(),
             };
-            
+
             let serialized = serde_json::to_string(&tool).unwrap();
             let deserialized: McpToolDefinition = serde_json::from_str(&serialized).unwrap();
-            
+
             assert_eq!(deserialized.name, "test_tool");
             assert_eq!(deserialized.input_schema, schema);
         }

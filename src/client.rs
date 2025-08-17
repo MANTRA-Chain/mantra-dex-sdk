@@ -1,11 +1,8 @@
 /// Generic Mantra SDK Client
-/// 
+///
 /// This is the main entry point for interacting with the MANTRA blockchain.
 /// It provides access to all supported protocols through a unified interface.
-
-use crate::config::{
-    ConfigurationManager, ContractType, MantraNetworkConfig, ProtocolId
-};
+use crate::config::{ConfigurationManager, ContractType, MantraNetworkConfig, ProtocolId};
 use crate::error::Error;
 use crate::protocols::{
     claimdrop::{ClaimdropFactoryClient, ClaimdropProtocol},
@@ -14,34 +11,55 @@ use crate::protocols::{
     Protocol, ProtocolRegistry,
 };
 use crate::wallet::MantraWallet;
-use cosmrs::rpc::HttpClient;
-use std::sync::Arc;
+use cosmrs::{rpc::HttpClient, AccountId};
+use std::{str::FromStr, sync::Arc};
+use tracing::warn;
+
+/// Validate a contract address using cosmrs AccountId parsing
+fn validate_contract_address(address: &str) -> Result<(), Error> {
+    AccountId::from_str(address)
+        .map_err(|e| Error::Config(format!("Invalid contract address '{}': {}", address, e)))?;
+    Ok(())
+}
+
+/// Configuration changes for selective updates
+#[derive(Debug, Default)]
+pub struct ConfigurationChanges {
+    /// New RPC URL if changed
+    pub rpc_url: Option<String>,
+    /// Whether DEX configuration changed
+    pub dex_config_changed: bool,
+    /// Whether Skip configuration changed  
+    pub skip_config_changed: bool,
+    /// Whether ClaimDrop configuration changed
+    pub claimdrop_config_changed: bool,
+}
 
 /// Main MANTRA SDK client that provides access to all protocols
 pub struct MantraClient {
     /// RPC client for blockchain communication
     rpc_client: Arc<HttpClient>,
-    
+
     /// Unified configuration manager
     config_manager: ConfigurationManager,
-    
+
     /// Legacy network configuration for backward compatibility
     network_config: MantraNetworkConfig,
-    
+
     /// Optional wallet for signing transactions
     wallet: Option<Arc<MantraWallet>>,
-    
+
     /// Protocol registry containing all available protocols
     protocol_registry: ProtocolRegistry,
-    
+
     /// DEX protocol instance
-    dex_protocol: Option<DexProtocol>,
-    
+    dex_protocol: Option<Arc<DexProtocol>>,
+
     /// Skip protocol instance
-    skip_protocol: Option<SkipProtocol>,
-    
+    skip_protocol: Option<Arc<SkipProtocol>>,
+
     /// ClaimDrop protocol instance
-    claimdrop_protocol: Option<ClaimdropProtocol>,
+    claimdrop_protocol: Option<Arc<ClaimdropProtocol>>,
 }
 
 impl MantraClient {
@@ -52,11 +70,11 @@ impl MantraClient {
     ) -> Result<Self, Error> {
         // Get legacy network config for backward compatibility
         let network_config = config_manager.get_legacy_network_config();
-        
+
         // Create RPC client
         let rpc_client = Arc::new(
             HttpClient::new(network_config.rpc_url.as_str())
-                .map_err(|e| Error::Rpc(e.to_string()))?
+                .map_err(|e| Error::Rpc(e.to_string()))?,
         );
 
         // Create protocol registry
@@ -71,36 +89,52 @@ impl MantraClient {
         if config_manager.is_protocol_enabled(&ProtocolId::Dex) {
             let mut dex = DexProtocol::new();
             dex.initialize(rpc_client.clone()).await?;
-            protocol_registry.register(Box::new(dex.clone()));
-            dex_protocol = Some(dex);
+            let dex_arc = Arc::new(dex);
+            protocol_registry.register(dex_arc.clone());
+            dex_protocol = Some(dex_arc);
         }
 
         // Initialize Skip protocol if enabled
         if config_manager.is_protocol_enabled(&ProtocolId::Skip) {
             let mut skip = SkipProtocol::new();
             skip.initialize(rpc_client.clone()).await?;
-            
-            // Set contract addresses from configuration
-            if let Ok(entry_point_addr) = config_manager.get_contract_address(&ContractType::SkipEntryPoint) {
-                skip.set_contract_address(entry_point_addr);
+
+            // Set contract addresses from configuration with validation
+            if let Ok(entry_point_addr) =
+                config_manager.get_contract_address(&ContractType::SkipEntryPoint)
+            {
+                // Validate the contract address before setting it
+                if let Err(e) = validate_contract_address(&entry_point_addr) {
+                    warn!(
+                        contract_address = %entry_point_addr,
+                        error = %e,
+                        "Invalid Skip entry point contract address, skipping"
+                    );
+                } else {
+                    skip.set_contract_address(entry_point_addr);
+                }
             }
-            
-            protocol_registry.register(Box::new(skip.clone()));
-            skip_protocol = Some(skip);
+
+            let skip_arc = Arc::new(skip);
+            protocol_registry.register(skip_arc.clone());
+            skip_protocol = Some(skip_arc);
         }
 
         // Initialize ClaimDrop protocol if enabled
         if config_manager.is_protocol_enabled(&ProtocolId::ClaimDrop) {
             let mut claimdrop = ClaimdropProtocol::new();
             claimdrop.initialize(rpc_client.clone()).await?;
-            
+
             // Set factory address from configuration if available
-            if let Ok(factory_addr) = config_manager.get_contract_address(&ContractType::ClaimdropFactory) {
+            if let Ok(factory_addr) =
+                config_manager.get_contract_address(&ContractType::ClaimdropFactory)
+            {
                 claimdrop.set_factory_address(factory_addr);
             }
-            
-            protocol_registry.register(Box::new(claimdrop.clone()));
-            claimdrop_protocol = Some(claimdrop);
+
+            let claimdrop_arc = Arc::new(claimdrop);
+            protocol_registry.register(claimdrop_arc.clone());
+            claimdrop_protocol = Some(claimdrop_arc);
         }
 
         Ok(Self {
@@ -122,14 +156,16 @@ impl MantraClient {
     ) -> Result<Self, Error> {
         // Create a configuration manager from the legacy network config
         let mut config_manager = ConfigurationManager::default();
-        
+
         // Try to set the active network based on network config
         if let Err(_) = config_manager.set_active_network(network_config.network_name.clone()) {
             // If network not found, use default but log the issue
-            eprintln!("Warning: Network '{}' not found in configuration, using defaults", 
-                     network_config.network_name);
+            warn!(
+                network_name = %network_config.network_name,
+                "Network not found in configuration, using defaults"
+            );
         }
-        
+
         Self::new_with_config(config_manager, wallet).await
     }
 
@@ -174,73 +210,246 @@ impl MantraClient {
     }
 
     /// Get protocol configuration
-    pub fn get_protocol_config(&self, protocol_id: &ProtocolId) -> Option<crate::config::ProtocolConfig> {
+    pub fn get_protocol_config(
+        &self,
+        protocol_id: &ProtocolId,
+    ) -> Option<crate::config::ProtocolConfig> {
         self.config_manager.get_protocol_config(protocol_id)
     }
 
     /// Switch to a different network
     pub async fn switch_network(&mut self, network_name: String) -> Result<(), Error> {
         // Update configuration manager
-        self.config_manager.set_active_network(network_name.clone())?;
-        
+        self.config_manager
+            .set_active_network(network_name.clone())?;
+
         // Update legacy network config
         self.network_config = self.config_manager.get_legacy_network_config();
-        
+
         // Recreate RPC client with new endpoint
         self.rpc_client = Arc::new(
             HttpClient::new(self.network_config.rpc_url.as_str())
-                .map_err(|e| Error::Rpc(e.to_string()))?
+                .map_err(|e| Error::Rpc(e.to_string()))?,
         );
-        
+
         // Reinitialize protocols
         self.reinitialize_protocols().await
     }
 
+    /// Update configuration selectively without full reinitialization
+    pub async fn update_config_selective(
+        &mut self,
+        config_changes: ConfigurationChanges,
+    ) -> Result<(), Error> {
+        let mut requires_rpc_restart = false;
+        let mut protocols_to_update = Vec::new();
+
+        // Check if RPC endpoint changed
+        if let Some(new_rpc_url) = &config_changes.rpc_url {
+            if new_rpc_url != &self.network_config.rpc_url {
+                self.network_config.rpc_url = new_rpc_url.clone();
+                requires_rpc_restart = true;
+            }
+        }
+
+        // Check protocol-specific changes
+        if config_changes.dex_config_changed {
+            protocols_to_update.push(ProtocolId::Dex);
+        }
+        if config_changes.skip_config_changed {
+            protocols_to_update.push(ProtocolId::Skip);
+        }
+        if config_changes.claimdrop_config_changed {
+            protocols_to_update.push(ProtocolId::ClaimDrop);
+        }
+
+        // Update RPC client if needed
+        if requires_rpc_restart {
+            self.rpc_client = Arc::new(
+                HttpClient::new(self.network_config.rpc_url.as_str())
+                    .map_err(|e| Error::Rpc(e.to_string()))?,
+            );
+            // If RPC changes, all protocols need updating
+            protocols_to_update = vec![ProtocolId::Dex, ProtocolId::Skip, ProtocolId::ClaimDrop];
+        }
+
+        // Selectively update only changed protocols
+        for protocol_id in protocols_to_update {
+            self.update_protocol(&protocol_id).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Update a specific protocol with new configuration
+    async fn update_protocol(&mut self, protocol_id: &ProtocolId) -> Result<(), Error> {
+        match protocol_id {
+            ProtocolId::Dex => {
+                if self.config_manager.is_protocol_enabled(protocol_id) {
+                    if self.dex_protocol.is_some() {
+                        let mut dex = DexProtocol::new();
+                        dex.initialize(self.rpc_client.clone()).await?;
+                        let dex_arc = Arc::new(dex);
+
+                        // Update in registry
+                        self.protocol_registry.register(dex_arc.clone());
+                        self.dex_protocol = Some(dex_arc);
+                    }
+                } else {
+                    self.dex_protocol = None;
+                }
+            }
+            ProtocolId::Skip => {
+                if self.config_manager.is_protocol_enabled(protocol_id) {
+                    if self.skip_protocol.is_some() {
+                        let mut skip = SkipProtocol::new();
+                        skip.initialize(self.rpc_client.clone()).await?;
+
+                        // Update contract addresses with validation
+                        if let Ok(entry_point_addr) = self
+                            .config_manager
+                            .get_contract_address(&ContractType::SkipEntryPoint)
+                        {
+                            if let Err(e) = validate_contract_address(&entry_point_addr) {
+                                warn!(
+                                    contract_address = %entry_point_addr,
+                                    error = %e,
+                                    "Invalid Skip entry point contract address during update, skipping"
+                                );
+                            } else {
+                                skip.set_contract_address(entry_point_addr);
+                            }
+                        }
+
+                        let skip_arc = Arc::new(skip);
+                        self.protocol_registry.register(skip_arc.clone());
+                        self.skip_protocol = Some(skip_arc);
+                    }
+                } else {
+                    self.skip_protocol = None;
+                }
+            }
+            ProtocolId::ClaimDrop => {
+                if self.config_manager.is_protocol_enabled(protocol_id) {
+                    if self.claimdrop_protocol.is_some() {
+                        let mut claimdrop = ClaimdropProtocol::new();
+                        claimdrop.initialize(self.rpc_client.clone()).await?;
+
+                        // Update factory address with validation
+                        if let Ok(factory_addr) = self
+                            .config_manager
+                            .get_contract_address(&ContractType::ClaimdropFactory)
+                        {
+                            if let Err(e) = validate_contract_address(&factory_addr) {
+                                warn!(
+                                    contract_address = %factory_addr,
+                                    error = %e,
+                                    "Invalid ClaimDrop factory address during update, skipping"
+                                );
+                            } else {
+                                claimdrop.set_factory_address(factory_addr);
+                            }
+                        }
+
+                        let claimdrop_arc = Arc::new(claimdrop);
+                        self.protocol_registry.register(claimdrop_arc.clone());
+                        self.claimdrop_protocol = Some(claimdrop_arc);
+                    }
+                } else {
+                    self.claimdrop_protocol = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Reinitialize all protocols with current configuration
     async fn reinitialize_protocols(&mut self) -> Result<(), Error> {
-        // Clear existing protocol registry
+        // Clear protocol references first to avoid dangling references in registry
+        if !self.config_manager.is_protocol_enabled(&ProtocolId::Dex) {
+            self.dex_protocol = None;
+        }
+        if !self.config_manager.is_protocol_enabled(&ProtocolId::Skip) {
+            self.skip_protocol = None;
+        }
+        if !self
+            .config_manager
+            .is_protocol_enabled(&ProtocolId::ClaimDrop)
+        {
+            self.claimdrop_protocol = None;
+        }
+
+        // Now clear existing protocol registry safely
         self.protocol_registry = ProtocolRegistry::new();
-        
+
         // Reinitialize DEX protocol if enabled
         if self.config_manager.is_protocol_enabled(&ProtocolId::Dex) {
-            if let Some(ref mut dex) = self.dex_protocol {
+            if self.dex_protocol.is_some() {
+                let mut dex = DexProtocol::new();
                 dex.initialize(self.rpc_client.clone()).await?;
-                self.protocol_registry.register(Box::new(dex.clone()));
+                let dex_arc = Arc::new(dex);
+                self.protocol_registry.register(dex_arc.clone());
+                self.dex_protocol = Some(dex_arc);
             }
-        } else {
-            self.dex_protocol = None;
         }
 
         // Reinitialize Skip protocol if enabled
         if self.config_manager.is_protocol_enabled(&ProtocolId::Skip) {
-            if let Some(ref mut skip) = self.skip_protocol {
+            if self.skip_protocol.is_some() {
+                let mut skip = SkipProtocol::new();
                 skip.initialize(self.rpc_client.clone()).await?;
-                
-                // Update contract addresses
-                if let Ok(entry_point_addr) = self.config_manager.get_contract_address(&ContractType::SkipEntryPoint) {
-                    skip.set_contract_address(entry_point_addr);
+
+                // Update contract addresses with validation
+                if let Ok(entry_point_addr) = self
+                    .config_manager
+                    .get_contract_address(&ContractType::SkipEntryPoint)
+                {
+                    if let Err(e) = validate_contract_address(&entry_point_addr) {
+                        warn!(
+                            contract_address = %entry_point_addr,
+                            error = %e,
+                            "Invalid Skip entry point contract address during reinit, skipping"
+                        );
+                    } else {
+                        skip.set_contract_address(entry_point_addr);
+                    }
                 }
-                
-                self.protocol_registry.register(Box::new(skip.clone()));
+
+                let skip_arc = Arc::new(skip);
+                self.protocol_registry.register(skip_arc.clone());
+                self.skip_protocol = Some(skip_arc);
             }
-        } else {
-            self.skip_protocol = None;
         }
 
         // Reinitialize ClaimDrop protocol if enabled
-        if self.config_manager.is_protocol_enabled(&ProtocolId::ClaimDrop) {
-            if let Some(ref mut claimdrop) = self.claimdrop_protocol {
+        if self
+            .config_manager
+            .is_protocol_enabled(&ProtocolId::ClaimDrop)
+        {
+            if self.claimdrop_protocol.is_some() {
+                let mut claimdrop = ClaimdropProtocol::new();
                 claimdrop.initialize(self.rpc_client.clone()).await?;
-                
-                // Update factory address
-                if let Ok(factory_addr) = self.config_manager.get_contract_address(&ContractType::ClaimdropFactory) {
-                    claimdrop.set_factory_address(factory_addr);
+
+                // Update factory address with validation
+                if let Ok(factory_addr) = self
+                    .config_manager
+                    .get_contract_address(&ContractType::ClaimdropFactory)
+                {
+                    if let Err(e) = validate_contract_address(&factory_addr) {
+                        warn!(
+                            contract_address = %factory_addr,
+                            error = %e,
+                            "Invalid ClaimDrop factory address during reinit, skipping"
+                        );
+                    } else {
+                        claimdrop.set_factory_address(factory_addr);
+                    }
                 }
-                
-                self.protocol_registry.register(Box::new(claimdrop.clone()));
+
+                let claimdrop_arc = Arc::new(claimdrop);
+                self.protocol_registry.register(claimdrop_arc.clone());
+                self.claimdrop_protocol = Some(claimdrop_arc);
             }
-        } else {
-            self.claimdrop_protocol = None;
         }
 
         Ok(())
@@ -261,32 +470,24 @@ impl MantraClient {
     /// Get DEX client for DEX operations
     pub async fn dex(&self) -> Result<MantraDexClient, Error> {
         // Create a DEX client with the current configuration
-        let mut client = MantraDexClient::new(self.network_config.clone()).await?;
-        
-        // Set wallet if available
-        if let Some(wallet) = &self.wallet {
-            // Assuming there's a method to set wallet on the client
-            // client.set_wallet(wallet.clone());
-        }
-        
+        let client = MantraDexClient::new(self.network_config.clone()).await?;
+
+        // Return client (wallet will be set when transactions are performed)
         Ok(client)
     }
 
     /// Get Skip client for cross-chain operations
     pub async fn skip(&self) -> Result<crate::protocols::skip::SkipClient, Error> {
         // Create a Skip client with the current configuration
-        let mut client = crate::protocols::skip::SkipClient::new(
-            self.network_config.clone(),
-            self.wallet.clone(),
-        ).await?;
-        
+        let mut client = crate::protocols::skip::SkipClient::new(self.wallet.clone()).await?;
+
         // Set adapter contract address if available
         if let Some(skip_protocol) = &self.skip_protocol {
             if let Some(contract_addr) = skip_protocol.contract_address() {
                 client.set_adapter_contract(contract_addr.to_string());
             }
         }
-        
+
         Ok(client)
     }
 
@@ -301,7 +502,10 @@ impl MantraClient {
     }
 
     /// Get ClaimDrop campaign client
-    pub fn claimdrop_campaign(&self, campaign_address: String) -> crate::protocols::claimdrop::ClaimdropClient {
+    pub fn claimdrop_campaign(
+        &self,
+        campaign_address: String,
+    ) -> crate::protocols::claimdrop::ClaimdropClient {
         use tokio::sync::Mutex;
         crate::protocols::claimdrop::ClaimdropClient::new(
             Arc::new(Mutex::new((*self.rpc_client).clone())),
@@ -319,15 +523,33 @@ impl MantraClient {
 
     /// Set Skip adapter contract address
     pub fn set_skip_contract(&mut self, address: String) {
-        if let Some(skip) = &mut self.skip_protocol {
-            skip.set_contract_address(address);
+        if let Some(skip_arc) = &mut self.skip_protocol {
+            if let Some(skip) = Arc::get_mut(skip_arc) {
+                skip.set_contract_address(address);
+            } else {
+                // If there are multiple references, create a new instance
+                warn!(
+                    "Cannot mutate Skip protocol due to multiple references, recreating protocol"
+                );
+                let mut new_skip = (**skip_arc).clone();
+                new_skip.set_contract_address(address);
+                *skip_arc = Arc::new(new_skip);
+            }
         }
     }
 
     /// Set ClaimDrop factory address
     pub fn set_claimdrop_factory(&mut self, address: String) {
-        if let Some(claimdrop) = &mut self.claimdrop_protocol {
-            claimdrop.set_factory_address(address);
+        if let Some(claimdrop_arc) = &mut self.claimdrop_protocol {
+            if let Some(claimdrop) = Arc::get_mut(claimdrop_arc) {
+                claimdrop.set_factory_address(address);
+            } else {
+                // If there are multiple references, create a new instance
+                warn!("Cannot mutate ClaimDrop protocol due to multiple references, recreating protocol");
+                let mut new_claimdrop = (**claimdrop_arc).clone();
+                new_claimdrop.set_factory_address(address);
+                *claimdrop_arc = Arc::new(new_claimdrop);
+            }
         }
     }
 
@@ -336,14 +558,14 @@ impl MantraClient {
     /// Check connectivity to all configured protocols
     pub async fn check_connectivity(&self) -> Result<Vec<(String, bool)>, Error> {
         let mut results = Vec::new();
-        
+
         for protocol_name in self.list_protocols() {
             if let Some(protocol) = self.protocol_registry.get(protocol_name) {
                 let available = protocol.is_available(&self.rpc_client).await?;
                 results.push((protocol_name.to_string(), available));
             }
         }
-        
+
         Ok(results)
     }
 
@@ -442,9 +664,7 @@ impl MantraClientBuilder {
         if self.config_manager.is_none() && self.network_config.is_none() {
             // Try to load configuration automatically
             match ConfigurationManager::new() {
-                Ok(config_manager) => {
-                    self.with_config_manager(config_manager).build().await
-                }
+                Ok(config_manager) => self.with_config_manager(config_manager).build().await,
                 Err(_) => {
                     // Fall back to default if auto-loading fails
                     self.build().await

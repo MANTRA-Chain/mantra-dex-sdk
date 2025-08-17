@@ -1,19 +1,16 @@
 /// ClaimDrop client for interacting with individual claimdrop campaigns
-
 use crate::error::Error;
 use crate::wallet::MantraWallet;
 use cosmrs::rpc::{Client as RpcClient, HttpClient};
 use cosmrs::tx::Fee;
 use cosmwasm_std::{Coin, Uint128};
-use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Import ClaimDrop std types
 use mantra_claimdrop_std::msg::{
-    ExecuteMsg, QueryMsg, CampaignResponse, RewardsResponse, ClaimedResponse,
-    AllocationsResponse, BlacklistResponse, AuthorizedResponse, AuthorizedWalletsResponse,
-    CampaignAction
+    AllocationsResponse, AuthorizedResponse, BlacklistResponse, CampaignAction, CampaignResponse,
+    ClaimedResponse, ExecuteMsg, QueryMsg, RewardsResponse,
 };
 
 use super::types::*;
@@ -56,7 +53,6 @@ impl ClaimdropClient {
     ) -> Result<R, Error> {
         use cosmos_sdk_proto::cosmwasm::wasm::v1::QuerySmartContractStateRequest;
         use prost::Message;
-        use serde::de::DeserializeOwned;
 
         let rpc_client = self.rpc_client.lock().await;
         let query = QuerySmartContractStateRequest {
@@ -82,8 +78,8 @@ impl ClaimdropClient {
             )));
         }
 
-        let response_data: R = serde_json::from_slice(&result.value)
-            .map_err(|e| Error::Serialization(e))?;
+        let response_data: R =
+            serde_json::from_slice(&result.value).map_err(|e| Error::Serialization(e))?;
 
         Ok(response_data)
     }
@@ -91,8 +87,8 @@ impl ClaimdropClient {
     /// Helper method to execute a contract message
     async fn execute<T: serde::Serialize>(
         &self,
-        msg: &T,
-        funds: Vec<Coin>,
+        _msg: &T,
+        _funds: Vec<Coin>,
         _fee: Fee,
     ) -> Result<ClaimdropOperationResult, Error> {
         // This is a simplified implementation - a full implementation would handle
@@ -112,7 +108,7 @@ impl ClaimdropClient {
     pub async fn query_campaign(&self) -> Result<CampaignInfo, Error> {
         let query_msg = QueryMsg::Campaign {};
         let response: CampaignResponse = self.query(&query_msg).await?;
-        
+
         // Convert CampaignResponse to our CampaignInfo type
         Ok(CampaignInfo {
             address: self.contract_address.clone(),
@@ -133,7 +129,7 @@ impl ClaimdropClient {
             receiver: receiver.to_string(),
         };
         let response: RewardsResponse = self.query(&query_msg).await?;
-        
+
         Ok(UserRewards {
             campaign_address: self.contract_address.clone(),
             claimed: response.claimed,
@@ -155,13 +151,14 @@ impl ClaimdropClient {
             limit,
         };
         let response: ClaimedResponse = self.query(&query_msg).await?;
-        
+
         // Convert response format
-        let result = response.claimed
+        let result = response
+            .claimed
             .into_iter()
             .map(|(addr, coin)| (addr, vec![coin]))
             .collect();
-        
+
         Ok(result)
     }
 
@@ -178,16 +175,17 @@ impl ClaimdropClient {
             limit,
         };
         let response: AllocationsResponse = self.query(&query_msg).await?;
-        
+
         // Convert response format
-        let result = response.allocations
+        let result = response
+            .allocations
             .into_iter()
             .map(|(user, coin)| Allocation {
                 user,
                 allocated_amount: coin.amount,
             })
             .collect();
-        
+
         Ok(result)
     }
 
@@ -279,12 +277,10 @@ impl ClaimdropClient {
                     blacklist: true,
                 }
             }
-            BlacklistAction::RemoveFromBlacklist { addresses } => {
-                ExecuteMsg::BlacklistAddress {
-                    address: addresses[0].clone(),
-                    blacklist: false,
-                }
-            }
+            BlacklistAction::RemoveFromBlacklist { addresses } => ExecuteMsg::BlacklistAddress {
+                address: addresses[0].clone(),
+                blacklist: false,
+            },
         };
 
         self.execute(&msg, vec![], fee).await

@@ -1,10 +1,6 @@
 /// DEX-specific types and structures
-
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use mantra_dex_std::{
-    fee::PoolFee,
-    pool_manager::{PoolType},
-};
+use mantra_dex_std::{fee::PoolFee, pool_manager::PoolType};
 use serde::{Deserialize, Serialize};
 
 // Re-export commonly used DEX types

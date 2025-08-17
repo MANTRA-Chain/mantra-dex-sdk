@@ -1,6 +1,5 @@
 /// Skip protocol types and message structures
 /// Based on Skip Go CosmWasm contracts for cross-chain operations
-
 use cosmwasm_std::{Coin, Decimal, Uint128};
 use serde::{Deserialize, Serialize};
 

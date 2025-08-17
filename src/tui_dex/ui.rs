@@ -64,7 +64,9 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) -> Result<(), Error> {
         crate::tui_dex::app::Screen::MultiHop => render_multihop(frame, app),
         crate::tui_dex::app::Screen::Liquidity => render_liquidity(frame, app),
         crate::tui_dex::app::Screen::Rewards => render_rewards(frame, app),
-        crate::tui_dex::app::Screen::Admin => crate::tui_dex::screens::admin::render_admin(frame, app),
+        crate::tui_dex::app::Screen::Admin => {
+            crate::tui_dex::screens::admin::render_admin(frame, app)
+        }
         crate::tui_dex::app::Screen::Settings => {
             // Use enhanced settings screen with focus indicators
             crate::tui_dex::screens::settings::render_settings_screen_with_focus(frame, app);
@@ -128,23 +130,24 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App, layout_config: &Layou
     frame.render_widget(title, header_chunks[0]);
 
     // Navigation tabs - potentially compact in small screens
-    let screen_list = if layout_config.mode == crate::tui_dex::utils::responsive::LayoutMode::Compact {
-        // Show abbreviated names in compact mode
-        vec![
-            ("Dash", crate::tui_dex::app::Screen::Dashboard),
-            ("Pools", crate::tui_dex::app::Screen::Pools),
-            ("Swap", crate::tui_dex::app::Screen::Swap),
-            ("Liq", crate::tui_dex::app::Screen::Liquidity),
-            ("Rew", crate::tui_dex::app::Screen::Rewards),
-            ("Admin", crate::tui_dex::app::Screen::Admin),
-            ("Set", crate::tui_dex::app::Screen::Settings),
-        ]
-    } else {
-        crate::tui_dex::app::Screen::all()
-            .iter()
-            .map(|s| (s.display_name(), *s))
-            .collect()
-    };
+    let screen_list =
+        if layout_config.mode == crate::tui_dex::utils::responsive::LayoutMode::Compact {
+            // Show abbreviated names in compact mode
+            vec![
+                ("Dash", crate::tui_dex::app::Screen::Dashboard),
+                ("Pools", crate::tui_dex::app::Screen::Pools),
+                ("Swap", crate::tui_dex::app::Screen::Swap),
+                ("Liq", crate::tui_dex::app::Screen::Liquidity),
+                ("Rew", crate::tui_dex::app::Screen::Rewards),
+                ("Admin", crate::tui_dex::app::Screen::Admin),
+                ("Set", crate::tui_dex::app::Screen::Settings),
+            ]
+        } else {
+            crate::tui_dex::app::Screen::all()
+                .iter()
+                .map(|s| (s.display_name(), *s))
+                .collect()
+        };
 
     let tabs: Vec<Line> = screen_list
         .iter()
@@ -201,7 +204,8 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App, layout_config: &Layou
         }
     };
 
-    let info_text = if layout_config.mode == crate::tui_dex::utils::responsive::LayoutMode::Compact {
+    let info_text = if layout_config.mode == crate::tui_dex::utils::responsive::LayoutMode::Compact
+    {
         format!("{} {}", wallet_info, block_info)
     } else {
         format!("{}\n{}", wallet_info, block_info)
@@ -349,7 +353,9 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App, layout_config: &L
             crate::tui_dex::app::LoadingState::Success { message, .. } => {
                 (message.clone(), Color::Green)
             }
-            crate::tui_dex::app::LoadingState::Error { message, .. } => (message.clone(), Color::Red),
+            crate::tui_dex::app::LoadingState::Error { message, .. } => {
+                (message.clone(), Color::Red)
+            }
         };
 
         let loading = Paragraph::new(loading_text)

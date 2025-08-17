@@ -104,6 +104,15 @@ impl MantraDexClient {
         self
     }
 
+    /// Set the wallet for signing transactions
+    ///
+    /// # Arguments
+    ///
+    /// * `wallet` - The wallet to use for signing transactions
+    pub fn set_wallet(&mut self, wallet: MantraWallet) {
+        self.wallet = Some(wallet);
+    }
+
     /// Get the wallet if available
     pub fn wallet(&self) -> Result<&MantraWallet, Error> {
         self.wallet
@@ -209,17 +218,20 @@ impl MantraDexClient {
     /// Query a transaction by hash
     pub async fn query_transaction(&self, tx_hash: &str) -> Result<serde_json::Value, Error> {
         let rpc_client = self.rpc_client.lock().await;
-        
+
         // Parse the transaction hash
-        let hash = Hash::from_hex_upper(cosmrs::tendermint::hash::Algorithm::Sha256, tx_hash.trim_start_matches("0x"))
-            .map_err(|e| Error::Other(format!("Invalid transaction hash: {}", e)))?;
-        
+        let hash = Hash::from_hex_upper(
+            cosmrs::tendermint::hash::Algorithm::Sha256,
+            tx_hash.trim_start_matches("0x"),
+        )
+        .map_err(|e| Error::Other(format!("Invalid transaction hash: {}", e)))?;
+
         // Query the transaction
         let tx_response = rpc_client
             .tx(hash, false)
             .await
             .map_err(|e| Error::Rpc(format!("Failed to query transaction: {}", e)))?;
-        
+
         // Create a simplified response structure
         let result = serde_json::json!({
             "hash": tx_hash,
@@ -250,7 +262,7 @@ impl MantraDexClient {
                 "note": "Full transaction parsing not implemented - use specialized tools for detailed analysis"
             }
         });
-        
+
         Ok(result)
     }
 
@@ -691,10 +703,14 @@ impl MantraDexClient {
             return Err(Error::Other("Pool ID cannot be empty".to_string()));
         }
         if offer_asset.amount.is_zero() {
-            return Err(Error::Other("Offer amount must be greater than zero".to_string()));
+            return Err(Error::Other(
+                "Offer amount must be greater than zero".to_string(),
+            ));
         }
         if offer_asset.denom.trim().is_empty() {
-            return Err(Error::Other("Offer asset denom cannot be empty".to_string()));
+            return Err(Error::Other(
+                "Offer asset denom cannot be empty".to_string(),
+            ));
         }
         if ask_asset_denom.trim().is_empty() {
             return Err(Error::Other("Ask asset denom cannot be empty".to_string()));
@@ -1467,14 +1483,14 @@ impl MantraDexClient {
         post_swap_action: crate::protocols::skip::SkipAction,
         affiliates: Vec<crate::protocols::skip::SkipAffiliate>,
     ) -> Result<TxResponse, Error> {
-        let skip_entry_point = self
-            .config
-            .contracts
-            .skip_entry_point
-            .as_ref()
-            .ok_or_else(|| {
-                Error::Other("Skip entry point contract address not configured".to_string())
-            })?;
+        let skip_entry_point =
+            self.config
+                .contracts
+                .skip_entry_point
+                .as_ref()
+                .ok_or_else(|| {
+                    Error::Other("Skip entry point contract address not configured".to_string())
+                })?;
 
         // Get the output denom from the last operation
         let output_denom = operations
@@ -1487,7 +1503,7 @@ impl MantraDexClient {
             crate::protocols::skip::SkipSwapExactAssetIn {
                 swap_venue_name: "mantra-dex".to_string(),
                 operations,
-            }
+            },
         );
 
         // Create assets
@@ -1507,8 +1523,7 @@ impl MantraDexClient {
             affiliates,
         };
 
-        self.execute(skip_entry_point, &msg, vec![offer_coin])
-            .await
+        self.execute(skip_entry_point, &msg, vec![offer_coin]).await
     }
 
     /// Execute a swap through Skip Adapter
@@ -1544,7 +1559,9 @@ impl MantraDexClient {
             return Err(Error::Other("Swap operations cannot be empty".to_string()));
         }
         if offer_coin.amount.is_zero() {
-            return Err(Error::Other("Offer amount must be greater than zero".to_string()));
+            return Err(Error::Other(
+                "Offer amount must be greater than zero".to_string(),
+            ));
         }
         if offer_coin.denom.trim().is_empty() {
             return Err(Error::Other("Offer coin denom cannot be empty".to_string()));
@@ -1554,7 +1571,9 @@ impl MantraDexClient {
         let min_amount = min_receive_amount.unwrap_or_else(|| {
             // Basic slippage protection: expect at least 95% of input value
             let slippage_factor = Decimal::from_str("0.95").unwrap_or(Decimal::percent(95));
-            offer_coin.amount.multiply_ratio(slippage_factor.atomics(), Decimal::one().atomics())
+            offer_coin
+                .amount
+                .multiply_ratio(slippage_factor.atomics(), Decimal::one().atomics())
         });
 
         // Get receiver address
@@ -1578,7 +1597,8 @@ impl MantraDexClient {
             min_amount,
             post_swap_action,
             vec![],
-        ).await
+        )
+        .await
     }
 
     /// Execute a swap with cross-chain action through Skip Adapter
@@ -1610,7 +1630,8 @@ impl MantraDexClient {
             min_receive_amount,
             action,
             affiliates.unwrap_or_default(),
-        ).await
+        )
+        .await
     }
 
     /// Simulate a swap exact asset in through Skip Adapter
@@ -1721,11 +1742,12 @@ impl MantraDexClient {
     ) -> Result<crate::protocols::skip::SimulateSwapExactAssetInResponse, Error> {
         let skip_mantra_dex_adapter = self.get_skip_mantra_dex_adapter()?;
 
-        let query = crate::protocols::skip::SkipEntryPointQueryMsg::SimulateSwapExactAssetInWithMetadata {
-            asset_in,
-            swap_operations,
-            include_spot_price,
-        };
+        let query =
+            crate::protocols::skip::SkipEntryPointQueryMsg::SimulateSwapExactAssetInWithMetadata {
+                asset_in,
+                swap_operations,
+                include_spot_price,
+            };
 
         self.query(skip_mantra_dex_adapter, &query).await
     }
@@ -1752,11 +1774,12 @@ impl MantraDexClient {
     ) -> Result<crate::protocols::skip::SimulateSwapExactAssetOutResponse, Error> {
         let skip_mantra_dex_adapter = self.get_skip_mantra_dex_adapter()?;
 
-        let query = crate::protocols::skip::SkipEntryPointQueryMsg::SimulateSwapExactAssetOutWithMetadata {
-            asset_out,
-            swap_operations,
-            include_spot_price,
-        };
+        let query =
+            crate::protocols::skip::SkipEntryPointQueryMsg::SimulateSwapExactAssetOutWithMetadata {
+                asset_out,
+                swap_operations,
+                include_spot_price,
+            };
 
         self.query(skip_mantra_dex_adapter, &query).await
     }

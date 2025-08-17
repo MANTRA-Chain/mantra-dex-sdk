@@ -48,7 +48,6 @@ pub mod sdk_adapter;
 // MCP client wrapper
 pub mod client_wrapper;
 
-
 // Re-export main types for easy access
 pub use server::{
     create_http_server, create_mcp_server, create_stdio_server, MantraDexMcpServer, McpResult,
@@ -60,7 +59,6 @@ pub use sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
 
 // Re-export client wrapper types
 pub use client_wrapper::McpClientWrapper;
-
 
 // TODO: Add these modules as they are implemented in subsequent tasks
 // pub mod tools;

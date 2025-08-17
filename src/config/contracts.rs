@@ -1,4 +1,4 @@
-use config::{Config as ConfigLoader, ConfigError, File};
+use config::{Config as ConfigLoader, File};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -92,7 +92,9 @@ impl ContractInfo {
     /// Validate contract address format (basic Cosmos bech32 validation)
     pub fn validate_address(&self, expected_prefix: &str) -> Result<(), Error> {
         if self.address.is_empty() {
-            return Err(Error::Config("Contract address cannot be empty".to_string()));
+            return Err(Error::Config(
+                "Contract address cannot be empty".to_string(),
+            ));
         }
 
         if !self.address.starts_with(expected_prefix) {
@@ -139,10 +141,14 @@ impl NetworkContracts {
     }
 
     /// Add a contract to the registry
-    pub fn add_contract(&mut self, contract_type: ContractType, contract_info: ContractInfo) -> Result<(), Error> {
+    pub fn add_contract(
+        &mut self,
+        contract_type: ContractType,
+        contract_info: ContractInfo,
+    ) -> Result<(), Error> {
         // Validate address format
         contract_info.validate_address(&self.address_prefix)?;
-        
+
         self.contracts.insert(contract_type, contract_info);
         Ok(())
     }
@@ -160,7 +166,7 @@ impl NetworkContracts {
     /// Check if all required contracts are present
     pub fn validate_required_contracts(&self) -> Result<(), Error> {
         let required_contracts = vec![ContractType::PoolManager];
-        
+
         for contract_type in required_contracts {
             match self.contracts.get(&contract_type) {
                 Some(info) if info.required => {
@@ -210,10 +216,10 @@ impl ContractRegistry {
     /// Load contract registry from configuration files
     pub fn load() -> Result<Self, Error> {
         let mut registry = Self::new();
-        
+
         // Load from configuration directory
         let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
-        
+
         // Try multiple paths for the config file
         let config_paths = vec![
             format!("{}/contracts", config_dir),
@@ -244,7 +250,7 @@ impl ContractRegistry {
     fn load_from_config(&mut self, settings: &ConfigLoader) -> Result<(), Error> {
         // Try to get available networks from config
         let networks = ["mantra-dukong"]; // Can be extended based on config discovery
-        
+
         for network in &networks {
             let mut network_contracts = NetworkContracts::new(
                 network.to_string(),
@@ -254,7 +260,7 @@ impl ContractRegistry {
 
             // Load contract addresses for this network
             self.load_network_contracts(&mut network_contracts, settings, network)?;
-            
+
             // Only add if we found some contracts
             if !network_contracts.contracts.is_empty() {
                 self.networks.insert(network.to_string(), network_contracts);
@@ -278,7 +284,10 @@ impl ContractRegistry {
             (ContractType::EpochManager, "epoch_manager"),
             (ContractType::SkipEntryPoint, "skip_entry_point"),
             (ContractType::SkipIbcHooksAdapter, "skip_ibc_hooks_adapter"),
-            (ContractType::SkipMantraDexAdapter, "skip_mantra_dex_adapter"),
+            (
+                ContractType::SkipMantraDexAdapter,
+                "skip_mantra_dex_adapter",
+            ),
         ];
 
         for (contract_type, contract_name) in &contract_types {
@@ -289,7 +298,7 @@ impl ContractRegistry {
             if let Ok(address) = settings.get::<String>(&address_key) {
                 let code_id = settings.get::<u64>(&code_id_key).ok();
                 let version = settings.get::<String>(&version_key).ok();
-                
+
                 let protocol = match contract_type {
                     ContractType::SkipEntryPoint
                     | ContractType::SkipIbcHooksAdapter
@@ -316,13 +325,14 @@ impl ContractRegistry {
     /// Load default contract configurations
     fn load_defaults(&mut self) -> Result<(), Error> {
         // Default Mantra Dukong configuration (empty as we rely on config files)
-        let mut dukong_contracts = NetworkContracts::new(
+        let dukong_contracts = NetworkContracts::new(
             "mantra-dukong".to_string(),
             "mantra-dukong-1".to_string(),
             "mantra".to_string(),
         );
 
-        self.networks.insert("mantra-dukong".to_string(), dukong_contracts);
+        self.networks
+            .insert("mantra-dukong".to_string(), dukong_contracts);
         Ok(())
     }
 
@@ -370,14 +380,12 @@ impl ContractRegistry {
     /// Get contract info for active network
     pub fn get_contract_info(&self, contract_type: &ContractType) -> Result<&ContractInfo, Error> {
         let network = self.get_active_network()?;
-        network
-            .get_contract(contract_type)
-            .ok_or_else(|| {
-                Error::Config(format!(
-                    "Contract '{}' not found for network '{}'",
-                    contract_type, network.network
-                ))
-            })
+        network.get_contract(contract_type).ok_or_else(|| {
+            Error::Config(format!(
+                "Contract '{}' not found for network '{}'",
+                contract_type, network.network
+            ))
+        })
     }
 
     /// Validate all contract addresses for active network
@@ -393,7 +401,8 @@ impl ContractRegistry {
         contract_type: ContractType,
         contract_info: ContractInfo,
     ) -> Result<(), Error> {
-        let network_contracts = self.networks
+        let network_contracts = self
+            .networks
             .get_mut(network)
             .ok_or_else(|| Error::Config(format!("Network '{}' not found", network)))?;
 
@@ -447,14 +456,16 @@ mod tests {
             "dex".to_string(),
         );
 
-        assert!(network.add_contract(ContractType::PoolManager, contract).is_ok());
+        assert!(network
+            .add_contract(ContractType::PoolManager, contract)
+            .is_ok());
         assert!(network.get_address(&ContractType::PoolManager).is_some());
     }
 
     #[test]
     fn test_contract_registry() {
         let mut registry = ContractRegistry::new();
-        
+
         let mut network = NetworkContracts::new(
             "test-network".to_string(),
             "test-1".to_string(),
@@ -466,10 +477,16 @@ mod tests {
             "dex".to_string(),
         );
 
-        network.add_contract(ContractType::PoolManager, contract).unwrap();
-        registry.networks.insert("test-network".to_string(), network);
+        network
+            .add_contract(ContractType::PoolManager, contract)
+            .unwrap();
+        registry
+            .networks
+            .insert("test-network".to_string(), network);
         registry.set_active_network("test-network").unwrap();
 
-        assert!(registry.get_contract_address(&ContractType::PoolManager).is_ok());
+        assert!(registry
+            .get_contract_address(&ContractType::PoolManager)
+            .is_ok());
     }
 }

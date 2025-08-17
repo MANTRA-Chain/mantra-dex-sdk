@@ -194,7 +194,10 @@ impl LiquidityScreenState {
             self.input_focus = LiquidityInputFocus::Pool;
             self.apply_focus();
 
-            crate::tui_dex::utils::logger::log_info(&format!("Liquidity mode switched to {:?}", mode));
+            crate::tui_dex::utils::logger::log_info(&format!(
+                "Liquidity mode switched to {:?}",
+                mode
+            ));
         }
     }
 
@@ -498,7 +501,10 @@ impl LiquidityScreenState {
         {
             crate::tui_dex::utils::logger::log_info("=== LIQUIDITY EXECUTE KEY PRESSED ===");
             crate::tui_dex::utils::logger::log_debug(&format!("Key event: {:?}", key));
-            crate::tui_dex::utils::logger::log_debug(&format!("Current focus: {:?}", self.input_focus));
+            crate::tui_dex::utils::logger::log_debug(&format!(
+                "Current focus: {:?}",
+                self.input_focus
+            ));
         }
 
         // Handle regular input focus
@@ -1566,7 +1572,10 @@ pub fn execute_liquidity_operation_with_confirmation() {
                 second_amount, second_asset
             ));
             crate::tui_dex::utils::logger::log_info(&format!("  Pool ID: {}", pool_id_str));
-            crate::tui_dex::utils::logger::log_info(&format!("  Slippage Tolerance: {}%", slippage));
+            crate::tui_dex::utils::logger::log_info(&format!(
+                "  Slippage Tolerance: {}%",
+                slippage
+            ));
 
             LiquidityOperationDetails {
                 first_amount: first_amount.to_string(),

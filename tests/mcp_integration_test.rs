@@ -508,11 +508,11 @@ async fn test_mcp_tools_concurrent_access() {
 #[tokio::test]
 async fn test_mcp_adapter_slippage_validation_integration() {
     use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
-    
+
     println!("Testing MCP adapter slippage validation integration...");
-    
+
     let adapter = McpSdkAdapter::new(ConnectionPoolConfig::default());
-    
+
     // Test invalid slippage formats that should be caught early
     println!("  Testing invalid slippage format rejection...");
     let invalid_slippage_cases = vec![
@@ -522,36 +522,54 @@ async fn test_mcp_adapter_slippage_validation_integration() {
         ("", "empty string"),
         ("0.05%", "percentage format"),
     ];
-    
+
     for (slippage, description) in invalid_slippage_cases {
-        let result = adapter.execute_swap_simple(
-            "uom".to_string(),
-            "uusdc".to_string(),
-            "1000000".to_string(),
-            slippage.to_string(),
-            "test_pool".to_string(),
-            None,
-        ).await;
-        
-        assert!(result.is_err(), "Should reject invalid slippage: {}", description);
+        let result = adapter
+            .execute_swap_simple(
+                "uom".to_string(),
+                "uusdc".to_string(),
+                "1000000".to_string(),
+                slippage.to_string(),
+                "test_pool".to_string(),
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "Should reject invalid slippage: {}",
+            description
+        );
         let error_msg = format!("{:?}", result.unwrap_err());
-        
+
         // Verify it fails on slippage validation, not later stages
         if slippage == "-0.1" {
             // Negative values are caught as format errors by Decimal::from_str
-            assert!(error_msg.contains("Invalid slippage format"), 
-                "Should fail on format validation for negative value: {} - actual error: {}", slippage, error_msg);
+            assert!(
+                error_msg.contains("Invalid slippage format"),
+                "Should fail on format validation for negative value: {} - actual error: {}",
+                slippage,
+                error_msg
+            );
         } else if slippage == "1.5" {
-            assert!(error_msg.contains("cannot be greater than 1.0"), 
-                "Should fail on >1.0 slippage validation: {} - actual error: {}", slippage, error_msg);
+            assert!(
+                error_msg.contains("cannot be greater than 1.0"),
+                "Should fail on >1.0 slippage validation: {} - actual error: {}",
+                slippage,
+                error_msg
+            );
         } else {
-            assert!(error_msg.contains("Invalid slippage format"), 
-                "Should fail on format validation: {} - actual error: {}", slippage, error_msg);
+            assert!(
+                error_msg.contains("Invalid slippage format"),
+                "Should fail on format validation: {} - actual error: {}",
+                slippage,
+                error_msg
+            );
         }
-        
+
         println!("    ✓ {} correctly rejected", description);
     }
-    
+
     // Test valid slippage values that should pass validation and fail later
     println!("  Testing valid slippage format acceptance...");
     let valid_slippage_cases = vec![
@@ -560,36 +578,53 @@ async fn test_mcp_adapter_slippage_validation_integration() {
         ("0.5", "50% slippage"),
         ("1.0", "100% slippage"),
     ];
-    
+
     for (slippage, description) in valid_slippage_cases {
-        let result = adapter.execute_swap_simple(
-            "uom".to_string(),
-            "uusdc".to_string(),
-            "1000000".to_string(),
-            slippage.to_string(),
-            "test_pool".to_string(),
-            None,
-        ).await;
-        
+        let result = adapter
+            .execute_swap_simple(
+                "uom".to_string(),
+                "uusdc".to_string(),
+                "1000000".to_string(),
+                slippage.to_string(),
+                "test_pool".to_string(),
+                None,
+            )
+            .await;
+
         // Should fail on wallet/network issues, not slippage
         match result {
             Err(err) => {
                 let error_msg = format!("{:?}", err);
-                assert!(!error_msg.contains("Invalid slippage"), 
-                    "Should not fail on slippage validation for valid value: {}", slippage);
-                assert!(!error_msg.contains("slippage cannot be negative"), 
-                    "Should not fail on negative check for valid value: {}", slippage);
-                assert!(!error_msg.contains("cannot be greater than 1.0"), 
-                    "Should not fail on >1.0 check for valid value: {}", slippage);
-                
-                println!("    ✓ {} passed slippage validation (failed later as expected)", description);
+                assert!(
+                    !error_msg.contains("Invalid slippage"),
+                    "Should not fail on slippage validation for valid value: {}",
+                    slippage
+                );
+                assert!(
+                    !error_msg.contains("slippage cannot be negative"),
+                    "Should not fail on negative check for valid value: {}",
+                    slippage
+                );
+                assert!(
+                    !error_msg.contains("cannot be greater than 1.0"),
+                    "Should not fail on >1.0 check for valid value: {}",
+                    slippage
+                );
+
+                println!(
+                    "    ✓ {} passed slippage validation (failed later as expected)",
+                    description
+                );
             }
             Ok(_) => {
-                println!("    ✓ {} passed slippage validation (unexpectedly succeeded)", description);
+                println!(
+                    "    ✓ {} passed slippage validation (unexpectedly succeeded)",
+                    description
+                );
             }
         }
     }
-    
+
     println!("  MCP adapter slippage validation integration test completed ✓");
 }
 
@@ -598,14 +633,14 @@ async fn test_mcp_adapter_slippage_validation_integration() {
 #[tokio::test]
 async fn test_mcp_adapter_slippage_edge_cases_integration() {
     use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
-    
+
     println!("Testing MCP adapter slippage edge cases integration...");
-    
+
     let adapter = McpSdkAdapter::new(ConnectionPoolConfig::default());
-    
+
     // Test boundary values
     println!("  Testing boundary slippage values...");
-    
+
     // Test exactly at boundaries (should be valid)
     let boundary_cases = vec![
         ("0.0", "exactly zero"),
@@ -613,22 +648,27 @@ async fn test_mcp_adapter_slippage_edge_cases_integration() {
         ("0.000001", "very small positive"),
         ("0.999999", "very close to one"),
     ];
-    
+
     for (slippage, description) in boundary_cases {
-        let result = adapter.execute_swap_simple(
-            "uom".to_string(),
-            "uusdc".to_string(),
-            "1000000".to_string(),
-            slippage.to_string(),
-            "test_pool".to_string(),
-            None,
-        ).await;
-        
+        let result = adapter
+            .execute_swap_simple(
+                "uom".to_string(),
+                "uusdc".to_string(),
+                "1000000".to_string(),
+                slippage.to_string(),
+                "test_pool".to_string(),
+                None,
+            )
+            .await;
+
         match result {
             Err(err) => {
                 let error_msg = format!("{:?}", err);
-                assert!(!error_msg.contains("Invalid slippage"), 
-                    "Boundary value should be valid: {}", slippage);
+                assert!(
+                    !error_msg.contains("Invalid slippage"),
+                    "Boundary value should be valid: {}",
+                    slippage
+                );
                 println!("    ✓ {} accepted (failed later as expected)", description);
             }
             Ok(_) => {
@@ -636,40 +676,52 @@ async fn test_mcp_adapter_slippage_edge_cases_integration() {
             }
         }
     }
-    
+
     // Test just outside boundaries (should be invalid)
     println!("  Testing just-outside-boundary slippage values...");
-    
+
     let invalid_boundary_cases = vec![
         ("-0.000001", "just below zero"),
         ("1.000001", "just above one"),
     ];
-    
+
     for (slippage, description) in invalid_boundary_cases {
-        let result = adapter.execute_swap_simple(
-            "uom".to_string(),
-            "uusdc".to_string(),
-            "1000000".to_string(),
-            slippage.to_string(),
-            "test_pool".to_string(),
-            None,
-        ).await;
-        
-        assert!(result.is_err(), "Should reject boundary violation: {}", description);
+        let result = adapter
+            .execute_swap_simple(
+                "uom".to_string(),
+                "uusdc".to_string(),
+                "1000000".to_string(),
+                slippage.to_string(),
+                "test_pool".to_string(),
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "Should reject boundary violation: {}",
+            description
+        );
         let error_msg = format!("{:?}", result.unwrap_err());
-        
+
         if slippage.starts_with('-') {
             // Negative values are caught as format errors by Decimal::from_str
-            assert!(error_msg.contains("Invalid slippage format"), 
-                "Should fail on format validation for negative value: {}", slippage);
+            assert!(
+                error_msg.contains("Invalid slippage format"),
+                "Should fail on format validation for negative value: {}",
+                slippage
+            );
         } else {
-            assert!(error_msg.contains("cannot be greater than 1.0"), 
-                "Should fail on >1.0 check: {}", slippage);
+            assert!(
+                error_msg.contains("cannot be greater than 1.0"),
+                "Should fail on >1.0 check: {}",
+                slippage
+            );
         }
-        
+
         println!("    ✓ {} correctly rejected", description);
     }
-    
+
     println!("  MCP adapter slippage edge cases integration test completed ✓");
 }
 
@@ -678,14 +730,14 @@ async fn test_mcp_adapter_slippage_edge_cases_integration() {
 #[tokio::test]
 async fn test_mcp_adapter_realistic_slippage_scenarios() {
     use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
-    
+
     println!("Testing realistic slippage scenarios...");
-    
+
     let adapter = McpSdkAdapter::new(ConnectionPoolConfig::default());
-    
+
     // Test common realistic slippage values used in DeFi
     println!("  Testing common DeFi slippage values...");
-    
+
     let realistic_cases = vec![
         ("0.005", "0.5% (low volatility)"),
         ("0.01", "1% (standard)"),
@@ -694,65 +746,88 @@ async fn test_mcp_adapter_realistic_slippage_scenarios() {
         ("0.1", "10% (very high volatility)"),
         ("0.2", "20% (extreme volatility)"),
     ];
-    
+
     for (slippage, description) in realistic_cases {
-        let result = adapter.execute_swap_simple(
-            "uom".to_string(),
-            "uusdc".to_string(),
-            "100000".to_string(), // 0.1 OM
-            slippage.to_string(),
-            "realistic_pool".to_string(),
-            None,
-        ).await;
-        
+        let result = adapter
+            .execute_swap_simple(
+                "uom".to_string(),
+                "uusdc".to_string(),
+                "100000".to_string(), // 0.1 OM
+                slippage.to_string(),
+                "realistic_pool".to_string(),
+                None,
+            )
+            .await;
+
         // These should all pass slippage validation
         match result {
             Err(err) => {
                 let error_msg = format!("{:?}", err);
-                assert!(!error_msg.contains("Invalid slippage"), 
-                    "Realistic slippage should be valid: {}", slippage);
-                println!("    ✓ {} passed validation (failed later as expected)", description);
+                assert!(
+                    !error_msg.contains("Invalid slippage"),
+                    "Realistic slippage should be valid: {}",
+                    slippage
+                );
+                println!(
+                    "    ✓ {} passed validation (failed later as expected)",
+                    description
+                );
             }
             Ok(_) => {
-                println!("    ✓ {} passed validation (unexpectedly succeeded)", description);
+                println!(
+                    "    ✓ {} passed validation (unexpectedly succeeded)",
+                    description
+                );
             }
         }
     }
-    
+
     // Test common user mistakes
     println!("  Testing common user mistakes...");
-    
+
     let mistake_cases = vec![
         ("5", "percentage without decimal (5 instead of 0.05)"),
         ("50", "percentage confusion (50 instead of 0.5)"),
         ("-5", "negative percentage"),
         ("105", "over 100% as integer"),
     ];
-    
+
     for (slippage, description) in mistake_cases {
-        let result = adapter.execute_swap_simple(
-            "uom".to_string(),
-            "uusdc".to_string(),
-            "100000".to_string(),
-            slippage.to_string(),
-            "mistake_pool".to_string(),
-            None,
-        ).await;
-        
-        assert!(result.is_err(), "Should catch user mistake: {}", description);
+        let result = adapter
+            .execute_swap_simple(
+                "uom".to_string(),
+                "uusdc".to_string(),
+                "100000".to_string(),
+                slippage.to_string(),
+                "mistake_pool".to_string(),
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "Should catch user mistake: {}",
+            description
+        );
         let error_msg = format!("{:?}", result.unwrap_err());
-        
+
         if slippage.starts_with('-') {
             // Negative values are caught as format errors by Decimal::from_str
-            assert!(error_msg.contains("Invalid slippage format"), 
-                "Should catch negative mistake as format error: {}", slippage);
+            assert!(
+                error_msg.contains("Invalid slippage format"),
+                "Should catch negative mistake as format error: {}",
+                slippage
+            );
         } else {
-            assert!(error_msg.contains("cannot be greater than 1.0"), 
-                "Should catch >100% mistake: {}", slippage);
+            assert!(
+                error_msg.contains("cannot be greater than 1.0"),
+                "Should catch >100% mistake: {}",
+                slippage
+            );
         }
-        
+
         println!("    ✓ {} correctly caught", description);
     }
-    
+
     println!("  Realistic slippage scenarios test completed ✓");
 }

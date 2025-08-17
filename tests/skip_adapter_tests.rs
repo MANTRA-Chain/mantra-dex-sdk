@@ -543,22 +543,38 @@ async fn test_simulate_skip_swap_exact_asset_in_with_metadata() {
         Ok(response) => {
             println!("✅ Skip Adapter metadata simulation successful!");
             println!("  Input: {} uom", asset_in.amount());
-            println!("  Output: {} {}", response.asset_out.amount(), response.asset_out.denom());
-            
+            println!(
+                "  Output: {} {}",
+                response.asset_out.amount(),
+                response.asset_out.denom()
+            );
+
             // Validate response structure with metadata
-            assert!(response.asset_out.amount() > Uint128::zero(), "Should receive non-zero output");
-            assert_eq!(response.asset_out.denom(), "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY");
-            
+            assert!(
+                response.asset_out.amount() > Uint128::zero(),
+                "Should receive non-zero output"
+            );
+            assert_eq!(
+                response.asset_out.denom(),
+                "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY"
+            );
+
             // Validate spot price is included when requested
             if let Some(spot_price) = response.spot_price {
                 println!("  💰 Spot Price: {}", spot_price);
-                assert!(spot_price > cosmwasm_std::Decimal::zero(), "Spot price should be positive");
+                assert!(
+                    spot_price > cosmwasm_std::Decimal::zero(),
+                    "Spot price should be positive"
+                );
             } else {
                 println!("  💰 Spot Price: Not provided by contract");
             }
         }
         Err(e) => {
-            panic!("Skip Adapter metadata simulation failed unexpectedly: {}", e);
+            panic!(
+                "Skip Adapter metadata simulation failed unexpectedly: {}",
+                e
+            );
         }
     }
 }
@@ -577,10 +593,17 @@ async fn test_simulate_skip_swap_exact_asset_out_with_metadata() {
         interface: None,
     }];
 
-    let asset_out = SkipAsset::native("factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY", 50000u128);
+    let asset_out = SkipAsset::native(
+        "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY",
+        50000u128,
+    );
 
     println!("🔄 Testing Skip Adapter reverse simulation with metadata:");
-    println!("  Desired Output: {} {}", asset_out.amount(), asset_out.denom());
+    println!(
+        "  Desired Output: {} {}",
+        asset_out.amount(),
+        asset_out.denom()
+    );
     println!("  Pool: o.uom.usdy.pool");
     println!("  Include spot price: true");
 
@@ -591,23 +614,40 @@ async fn test_simulate_skip_swap_exact_asset_out_with_metadata() {
     match result {
         Ok(response) => {
             println!("✅ Skip Adapter reverse metadata simulation successful!");
-            println!("  Desired Output: {} {}", asset_out.amount(), asset_out.denom());
-            println!("  Required Input: {} {}", response.asset_in.amount(), response.asset_in.denom());
-            
+            println!(
+                "  Desired Output: {} {}",
+                asset_out.amount(),
+                asset_out.denom()
+            );
+            println!(
+                "  Required Input: {} {}",
+                response.asset_in.amount(),
+                response.asset_in.denom()
+            );
+
             // Validate response structure
-            assert!(response.asset_in.amount() > Uint128::zero(), "Should require non-zero input");
+            assert!(
+                response.asset_in.amount() > Uint128::zero(),
+                "Should require non-zero input"
+            );
             assert_eq!(response.asset_in.denom(), "uom");
-            
+
             // Validate spot price is included when requested
             if let Some(spot_price) = response.spot_price {
                 println!("  💰 Spot Price: {}", spot_price);
-                assert!(spot_price > cosmwasm_std::Decimal::zero(), "Spot price should be positive");
+                assert!(
+                    spot_price > cosmwasm_std::Decimal::zero(),
+                    "Spot price should be positive"
+                );
             } else {
                 println!("  💰 Spot Price: Not provided by contract");
             }
         }
         Err(e) => {
-            panic!("Skip Adapter reverse metadata simulation failed unexpectedly: {}", e);
+            panic!(
+                "Skip Adapter reverse metadata simulation failed unexpectedly: {}",
+                e
+            );
         }
     }
 }
@@ -626,7 +666,8 @@ async fn test_simulate_skip_smart_swap_with_metadata() {
             operations: vec![SkipSwapOperation {
                 pool: "p.12".to_string(),
                 denom_in: "uom".to_string(),
-                denom_out: "ibc/D4673DC468A86C668204C7A29BFDC3511FF36D512C38C9EB9215872E9653B239".to_string(),
+                denom_out: "ibc/D4673DC468A86C668204C7A29BFDC3511FF36D512C38C9EB9215872E9653B239"
+                    .to_string(),
                 interface: None,
             }],
         },
@@ -637,13 +678,17 @@ async fn test_simulate_skip_smart_swap_with_metadata() {
                 SkipSwapOperation {
                     pool: "o.uom.usdy.pool".to_string(),
                     denom_in: "uom".to_string(),
-                    denom_out: "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY".to_string(),
+                    denom_out: "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY"
+                        .to_string(),
                     interface: None,
                 },
                 SkipSwapOperation {
                     pool: "p.10".to_string(),
-                    denom_in: "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY".to_string(),
-                    denom_out: "ibc/D4673DC468A86C668204C7A29BFDC3511FF36D512C38C9EB9215872E9653B239".to_string(),
+                    denom_in: "factory/mantra1qwm8p82w0ygaz3duf0y56gjf8pwh5ykmgnqmtm/uUSDY"
+                        .to_string(),
+                    denom_out:
+                        "ibc/D4673DC468A86C668204C7A29BFDC3511FF36D512C38C9EB9215872E9653B239"
+                            .to_string(),
                     interface: None,
                 },
             ],
@@ -666,16 +711,29 @@ async fn test_simulate_skip_smart_swap_with_metadata() {
         Ok(response) => {
             println!("✅ Smart swap metadata simulation successful!");
             println!("  Total Input: {} microOM", asset_in.amount());
-            println!("  Total Output: {} {}", response.asset_out.amount(), response.asset_out.denom());
+            println!(
+                "  Total Output: {} {}",
+                response.asset_out.amount(),
+                response.asset_out.denom()
+            );
             println!("  💡 Skip optimized routing across 2 different paths with metadata");
-            
-            assert!(response.asset_out.amount() > Uint128::zero(), "Should receive non-zero output");
-            assert_eq!(response.asset_out.denom(), "ibc/D4673DC468A86C668204C7A29BFDC3511FF36D512C38C9EB9215872E9653B239");
-            
+
+            assert!(
+                response.asset_out.amount() > Uint128::zero(),
+                "Should receive non-zero output"
+            );
+            assert_eq!(
+                response.asset_out.denom(),
+                "ibc/D4673DC468A86C668204C7A29BFDC3511FF36D512C38C9EB9215872E9653B239"
+            );
+
             // Validate spot price is included when requested
             if let Some(spot_price) = response.spot_price {
                 println!("  💰 Average Spot Price: {}", spot_price);
-                assert!(spot_price > cosmwasm_std::Decimal::zero(), "Spot price should be positive");
+                assert!(
+                    spot_price > cosmwasm_std::Decimal::zero(),
+                    "Spot price should be positive"
+                );
             } else {
                 println!("  💰 Spot Price: Not provided by contract");
             }
@@ -708,7 +766,11 @@ async fn test_metadata_queries_spot_price_control() {
     // Test with include_spot_price = false
     println!("  Testing with include_spot_price = false");
     let result_no_price = client
-        .simulate_skip_swap_exact_asset_in_with_metadata(asset_in.clone(), swap_operations.clone(), false)
+        .simulate_skip_swap_exact_asset_in_with_metadata(
+            asset_in.clone(),
+            swap_operations.clone(),
+            false,
+        )
         .await;
 
     // Test with include_spot_price = true
@@ -720,30 +782,48 @@ async fn test_metadata_queries_spot_price_control() {
     match (result_no_price, result_with_price) {
         (Ok(response_no_price), Ok(response_with_price)) => {
             println!("✅ Both metadata queries successful!");
-            
+
             // Both should return the same asset amounts
-            assert_eq!(response_no_price.asset_out.amount(), response_with_price.asset_out.amount());
-            assert_eq!(response_no_price.asset_out.denom(), response_with_price.asset_out.denom());
-            
+            assert_eq!(
+                response_no_price.asset_out.amount(),
+                response_with_price.asset_out.amount()
+            );
+            assert_eq!(
+                response_no_price.asset_out.denom(),
+                response_with_price.asset_out.denom()
+            );
+
             println!("  📊 Asset amounts consistent between both queries");
-            
+
             // The difference should be in spot price availability based on the flag
             match (response_no_price.spot_price, response_with_price.spot_price) {
                 (None, Some(spot_price)) => {
-                    println!("  ✅ Spot price control working: None when false, {} when true", spot_price);
-                },
+                    println!(
+                        "  ✅ Spot price control working: None when false, {} when true",
+                        spot_price
+                    );
+                }
                 (Some(_), Some(spot_price)) => {
-                    println!("  ⚠️  Contract provides spot price even when not requested, got: {}", spot_price);
-                },
+                    println!(
+                        "  ⚠️  Contract provides spot price even when not requested, got: {}",
+                        spot_price
+                    );
+                }
                 (None, None) => {
                     println!("  ⚠️  Contract doesn't provide spot price even when requested");
-                },
+                }
                 (Some(price1), None) => {
-                    println!("  ⚠️  Unexpected: got spot price {} when false, none when true", price1);
+                    println!(
+                        "  ⚠️  Unexpected: got spot price {} when false, none when true",
+                        price1
+                    );
                 }
             }
         }
-        (Err(e1), _) => panic!("Metadata query with include_spot_price=false failed: {}", e1),
+        (Err(e1), _) => panic!(
+            "Metadata query with include_spot_price=false failed: {}",
+            e1
+        ),
         (_, Err(e2)) => panic!("Metadata query with include_spot_price=true failed: {}", e2),
     }
 }

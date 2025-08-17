@@ -43,7 +43,7 @@ async fn test_swap_operation() {
     println!("Creating test client...");
     let client = create_test_client().await;
     let test_config = load_test_config();
-    
+
     // Add a small delay to avoid sequence issues from concurrent tests
     tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
 
@@ -116,7 +116,7 @@ async fn test_swap_operation() {
                     !tx_response.txhash.is_empty(),
                     "Transaction hash should not be empty"
                 );
-                
+
                 // Add a small delay after successful transaction to avoid account sequence mismatch
                 // in subsequent operations (prevents race conditions with blockchain state updates)
                 tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -214,7 +214,7 @@ async fn test_provide_liquidity() {
                     !tx_response.txhash.is_empty(),
                     "Transaction hash should not be empty"
                 );
-                
+
                 // Add a small delay after successful transaction to avoid account sequence mismatch
                 // in subsequent operations (prevents race conditions with blockchain state updates)
                 tokio::time::sleep(std::time::Duration::from_millis(1500)).await;

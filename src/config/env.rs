@@ -1,13 +1,11 @@
-use config::{Config as ConfigLoader, ConfigError, Environment, File, FileFormat};
+use config::{Config as ConfigLoader, File, FileFormat};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::error::Error;
-use super::contracts::ContractRegistry;
-use super::protocols::ProtocolRegistry;
 
 /// Environment variable prefixes for different configuration sections
 const ENV_PREFIX: &str = "MANTRA";
@@ -162,30 +160,25 @@ impl EnvironmentConfig {
     /// Load configuration from environment variables and files
     pub fn load() -> Result<Self, Error> {
         let mut env_config = Self::default();
-        
+
         // Load from configuration files first
         env_config.load_from_files()?;
-        
+
         // Override with environment variables
         env_config.load_from_env()?;
-        
+
         // Validate the configuration
         env_config.validate()?;
-        
+
         Ok(env_config)
     }
 
     /// Load configuration from files
     fn load_from_files(&mut self) -> Result<(), Error> {
         let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
-        
+
         // Configuration file names to try (in order of preference)
-        let config_files = vec![
-            "mantra.toml",
-            "mantra.json",
-            "config.toml",
-            "config.json",
-        ];
+        let config_files = vec!["mantra.toml", "mantra.json", "config.toml", "config.json"];
 
         // Paths to search for configuration files
         let search_paths = vec![
@@ -201,7 +194,8 @@ impl EnvironmentConfig {
                 let file_path = Path::new(search_path).join(config_file);
                 if file_path.exists() {
                     self.load_config_file(&file_path)?;
-                    self.loaded_files.push(file_path.to_string_lossy().to_string());
+                    self.loaded_files
+                        .push(file_path.to_string_lossy().to_string());
                 }
             }
         }
@@ -251,13 +245,13 @@ impl EnvironmentConfig {
     fn load_from_env(&mut self) -> Result<(), Error> {
         // Load network configuration from environment
         self.load_network_env()?;
-        
+
         // Load MCP configuration from environment
         self.load_mcp_env()?;
-        
+
         // Load logging configuration from environment
         self.load_logging_env()?;
-        
+
         // Load custom environment variables
         self.load_custom_env()?;
 
@@ -418,9 +412,13 @@ impl EnvironmentConfig {
     /// Load custom environment variables with MANTRA prefix
     fn load_custom_env(&mut self) -> Result<(), Error> {
         for (key, value) in env::vars() {
-            if key.starts_with(ENV_PREFIX) && !key.starts_with(ENV_NETWORK_PREFIX) 
-                && !key.starts_with(ENV_CONTRACT_PREFIX) && !key.starts_with(ENV_PROTOCOL_PREFIX)
-                && !key.starts_with(ENV_MCP_PREFIX) && !key.starts_with(ENV_LOG_PREFIX) {
+            if key.starts_with(ENV_PREFIX)
+                && !key.starts_with(ENV_NETWORK_PREFIX)
+                && !key.starts_with(ENV_CONTRACT_PREFIX)
+                && !key.starts_with(ENV_PROTOCOL_PREFIX)
+                && !key.starts_with(ENV_MCP_PREFIX)
+                && !key.starts_with(ENV_LOG_PREFIX)
+            {
                 self.custom.insert(key, value);
             }
         }
@@ -535,51 +533,67 @@ impl EnvironmentConfig {
 
         if let Some(ref rpc_timeout) = self.network.rpc_timeout_secs {
             if *rpc_timeout == 0 {
-                return Err(Error::Config("RPC timeout must be greater than 0".to_string()));
+                return Err(Error::Config(
+                    "RPC timeout must be greater than 0".to_string(),
+                ));
             }
         }
 
         if let Some(ref pool_size) = self.network.rpc_pool_size {
             if *pool_size == 0 {
-                return Err(Error::Config("RPC pool size must be greater than 0".to_string()));
+                return Err(Error::Config(
+                    "RPC pool size must be greater than 0".to_string(),
+                ));
             }
         }
 
         // Validate RPC URLs
         if let Some(ref rpc_url) = self.network.rpc_url {
             if !rpc_url.starts_with("http://") && !rpc_url.starts_with("https://") {
-                return Err(Error::Config("RPC URL must start with http:// or https://".to_string()));
+                return Err(Error::Config(
+                    "RPC URL must start with http:// or https://".to_string(),
+                ));
             }
         }
 
         for fallback_url in &self.network.rpc_fallback_urls {
             if !fallback_url.starts_with("http://") && !fallback_url.starts_with("https://") {
-                return Err(Error::Config("Fallback RPC URL must start with http:// or https://".to_string()));
+                return Err(Error::Config(
+                    "Fallback RPC URL must start with http:// or https://".to_string(),
+                ));
             }
         }
 
         // Validate MCP configuration
         if let Some(ref max_ops) = self.mcp.max_concurrent_ops {
             if *max_ops == 0 {
-                return Err(Error::Config("Max concurrent operations must be greater than 0".to_string()));
+                return Err(Error::Config(
+                    "Max concurrent operations must be greater than 0".to_string(),
+                ));
             }
         }
 
         if let Some(ref request_timeout) = self.mcp.request_timeout_secs {
             if *request_timeout == 0 {
-                return Err(Error::Config("MCP request timeout must be greater than 0".to_string()));
+                return Err(Error::Config(
+                    "MCP request timeout must be greater than 0".to_string(),
+                ));
             }
         }
 
         if let Some(ref cache_ttl) = self.mcp.cache_ttl_secs {
             if *cache_ttl == 0 {
-                return Err(Error::Config("MCP cache TTL must be greater than 0".to_string()));
+                return Err(Error::Config(
+                    "MCP cache TTL must be greater than 0".to_string(),
+                ));
             }
         }
 
         if let Some(ref transport_type) = self.mcp.transport_type {
             if transport_type != "stdio" && transport_type != "http" {
-                return Err(Error::Config("MCP transport type must be 'stdio' or 'http'".to_string()));
+                return Err(Error::Config(
+                    "MCP transport type must be 'stdio' or 'http'".to_string(),
+                ));
             }
         }
 
@@ -606,7 +620,9 @@ impl EnvironmentConfig {
 
         if let Some(ref max_files) = self.logging.max_files {
             if *max_files == 0 {
-                return Err(Error::Config("Max log files must be greater than 0".to_string()));
+                return Err(Error::Config(
+                    "Max log files must be greater than 0".to_string(),
+                ));
             }
         }
 
@@ -616,7 +632,7 @@ impl EnvironmentConfig {
     /// Generate default configuration file
     pub fn generate_default_config() -> Self {
         let mut config = Self::default();
-        
+
         // Set default network configuration
         config.network.name = Some("mantra-dukong".to_string());
         config.network.chain_id = Some("mantra-dukong-1".to_string());
@@ -676,17 +692,26 @@ impl EnvironmentConfig {
 
     /// Get network name with fallback
     pub fn get_network_name(&self) -> String {
-        self.network.name.clone().unwrap_or_else(|| "mantra-dukong".to_string())
+        self.network
+            .name
+            .clone()
+            .unwrap_or_else(|| "mantra-dukong".to_string())
     }
 
     /// Get chain ID with fallback
     pub fn get_chain_id(&self) -> String {
-        self.network.chain_id.clone().unwrap_or_else(|| "mantra-dukong-1".to_string())
+        self.network
+            .chain_id
+            .clone()
+            .unwrap_or_else(|| "mantra-dukong-1".to_string())
     }
 
     /// Get RPC URL with fallback
     pub fn get_rpc_url(&self) -> String {
-        self.network.rpc_url.clone().unwrap_or_else(|| "https://rpc.dukong.mantrachain.io:443".to_string())
+        self.network
+            .rpc_url
+            .clone()
+            .unwrap_or_else(|| "https://rpc.dukong.mantrachain.io:443".to_string())
     }
 
     /// Get gas price with fallback
@@ -701,7 +726,10 @@ impl EnvironmentConfig {
 
     /// Get native denom with fallback
     pub fn get_native_denom(&self) -> String {
-        self.network.native_denom.clone().unwrap_or_else(|| "uom".to_string())
+        self.network
+            .native_denom
+            .clone()
+            .unwrap_or_else(|| "uom".to_string())
     }
 }
 
@@ -713,7 +741,7 @@ mod tests {
     #[test]
     fn test_environment_config_defaults() {
         let config = EnvironmentConfig::generate_default_config();
-        
+
         assert_eq!(config.get_network_name(), "mantra-dukong");
         assert_eq!(config.get_chain_id(), "mantra-dukong-1");
         assert_eq!(config.get_gas_price(), 0.01);
@@ -723,14 +751,14 @@ mod tests {
     #[test]
     fn test_environment_config_validation() {
         let mut config = EnvironmentConfig::generate_default_config();
-        
+
         // Valid configuration should pass
         assert!(config.validate().is_ok());
-        
+
         // Invalid gas price should fail
         config.network.gas_price = Some(-1.0);
         assert!(config.validate().is_err());
-        
+
         // Fix gas price and test invalid RPC URL
         config.network.gas_price = Some(0.01);
         config.network.rpc_url = Some("invalid-url".to_string());
@@ -763,7 +791,7 @@ mod tests {
     #[test]
     fn test_config_merging() {
         let mut config = EnvironmentConfig::default();
-        
+
         // File config
         let file_config = NetworkEnvConfig {
             name: Some("file-network".to_string()),
@@ -771,14 +799,17 @@ mod tests {
             rpc_url: Some("https://file-rpc.example.com".to_string()),
             ..Default::default()
         };
-        
+
         config.merge_network_config(file_config);
-        
+
         // Environment override
         config.network.name = Some("env-network".to_string());
-        
+
         assert_eq!(config.network.name, Some("env-network".to_string())); // Env overrides
         assert_eq!(config.network.chain_id, Some("file-1".to_string())); // File value used
-        assert_eq!(config.network.rpc_url, Some("https://file-rpc.example.com".to_string())); // File value used
+        assert_eq!(
+            config.network.rpc_url,
+            Some("https://file-rpc.example.com".to_string())
+        ); // File value used
     }
 }

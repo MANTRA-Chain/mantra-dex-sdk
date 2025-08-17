@@ -1,6 +1,5 @@
 /// Skip Protocol Module
 /// Handles cross-chain routing and swaps via Skip Protocol
-
 pub mod client;
 pub mod types;
 
@@ -9,12 +8,12 @@ pub use client::SkipClient;
 
 // Re-export Skip types for convenience
 pub use types::{
+    AssetPair, BridgeInfo, ChainAsset, CrossChainAsset, CrossChainRoute, RouteStep, RouteStepType,
     SimulateSmartSwapExactAssetInResponse, SimulateSwapExactAssetInResponse,
-    SimulateSwapExactAssetOutResponse, SkipAction, SkipAffiliate, SkipAsset, SkipIbcInfo,
-    SkipRoute, SkipSwap, SkipSwapExactAssetIn, SkipSwapExactAssetOut, SkipSwapOperation,
-    SkipEntryPointExecuteMsg, SkipEntryPointQueryMsg, CrossChainRoute, CrossChainAsset,
-    TransferRequest, TransferResult, TransferStatus, SupportedChain, ChainAsset,
-    BridgeInfo, AssetPair, RouteStep, RouteStepType,
+    SimulateSwapExactAssetOutResponse, SkipAction, SkipAffiliate, SkipAsset,
+    SkipEntryPointExecuteMsg, SkipEntryPointQueryMsg, SkipIbcInfo, SkipRoute, SkipSwap,
+    SkipSwapExactAssetIn, SkipSwapExactAssetOut, SkipSwapOperation, SupportedChain,
+    TransferRequest, TransferResult, TransferStatus,
 };
 
 use crate::error::Error;

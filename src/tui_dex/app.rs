@@ -1386,7 +1386,8 @@ impl App {
                 swap_state.apply_focus();
             }
             Screen::Liquidity => {
-                let liquidity_state = crate::tui_dex::screens::liquidity::get_liquidity_screen_state();
+                let liquidity_state =
+                    crate::tui_dex::screens::liquidity::get_liquidity_screen_state();
                 // Clear previous internal focus first
                 liquidity_state.reset_focus();
 
@@ -1435,33 +1436,33 @@ impl App {
                 admin_state.reset_focus();
 
                 match focused_component {
-                    FocusableComponent::TextInput(id) => match id.as_str() {
-                        "admin_first_asset" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::FirstAssetDenom
+                    FocusableComponent::TextInput(id) => {
+                        match id.as_str() {
+                            "admin_first_asset" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::FirstAssetDenom
+                            }
+                            "admin_second_asset" => admin_state.input_focus =
+                                crate::tui_dex::screens::admin::AdminInputFocus::SecondAssetDenom,
+                            "admin_swap_fee" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::SwapFee
+                            }
+                            "admin_protocol_fee" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::ProtocolFee
+                            }
+                            "admin_burn_fee" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::BurnFee
+                            }
+                            "admin_target_pool_id" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::TargetPoolId
+                            }
+                            _ => {}
                         }
-                        "admin_second_asset" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::SecondAssetDenom
-                        }
-                        "admin_swap_fee" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::SwapFee
-                        }
-                        "admin_protocol_fee" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::ProtocolFee
-                        }
-                        "admin_burn_fee" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::BurnFee
-                        }
-                        "admin_target_pool_id" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::TargetPoolId
-                        }
-                        _ => {}
-                    },
+                    }
                     FocusableComponent::Dropdown(id) => match id.as_str() {
                         "admin_pool_selection" => {
                             admin_state.input_focus =
@@ -1473,21 +1474,21 @@ impl App {
                         }
                         _ => {}
                     },
-                    FocusableComponent::Button(id) => match id.as_str() {
-                        "admin_management_execute" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::ManagementExecute
+                    FocusableComponent::Button(id) => {
+                        match id.as_str() {
+                            "admin_management_execute" => admin_state.input_focus =
+                                crate::tui_dex::screens::admin::AdminInputFocus::ManagementExecute,
+                            "admin_creation_execute" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::CreationExecute
+                            }
+                            "admin_controls_execute" => {
+                                admin_state.input_focus =
+                                    crate::tui_dex::screens::admin::AdminInputFocus::ControlsExecute
+                            }
+                            _ => {}
                         }
-                        "admin_creation_execute" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::CreationExecute
-                        }
-                        "admin_controls_execute" => {
-                            admin_state.input_focus =
-                                crate::tui_dex::screens::admin::AdminInputFocus::ControlsExecute
-                        }
-                        _ => {}
-                    },
+                    }
                     FocusableComponent::Custom(id) => match id.as_str() {
                         "admin_feature_toggles" => {
                             admin_state.input_focus =
@@ -1546,15 +1547,23 @@ impl App {
                 crate::tui_dex::events::FocusableComponent::Dropdown(
                     "admin_pool_selection".to_string(),
                 ),
-                crate::tui_dex::events::FocusableComponent::Custom("admin_feature_toggles".to_string()),
+                crate::tui_dex::events::FocusableComponent::Custom(
+                    "admin_feature_toggles".to_string(),
+                ),
                 crate::tui_dex::events::FocusableComponent::Button(
                     "admin_management_execute".to_string(),
                 ),
                 // Pool Creation tab components
-                crate::tui_dex::events::FocusableComponent::TextInput("admin_first_asset".to_string()),
-                crate::tui_dex::events::FocusableComponent::TextInput("admin_second_asset".to_string()),
+                crate::tui_dex::events::FocusableComponent::TextInput(
+                    "admin_first_asset".to_string(),
+                ),
+                crate::tui_dex::events::FocusableComponent::TextInput(
+                    "admin_second_asset".to_string(),
+                ),
                 crate::tui_dex::events::FocusableComponent::TextInput("admin_swap_fee".to_string()),
-                crate::tui_dex::events::FocusableComponent::TextInput("admin_protocol_fee".to_string()),
+                crate::tui_dex::events::FocusableComponent::TextInput(
+                    "admin_protocol_fee".to_string(),
+                ),
                 crate::tui_dex::events::FocusableComponent::TextInput("admin_burn_fee".to_string()),
                 crate::tui_dex::events::FocusableComponent::Dropdown("admin_pool_type".to_string()),
                 crate::tui_dex::events::FocusableComponent::Button(
@@ -1573,7 +1582,9 @@ impl App {
             ],
             Screen::Settings => vec![
                 // Section navigation
-                crate::tui_dex::events::FocusableComponent::Custom("settings_section_list".to_string()),
+                crate::tui_dex::events::FocusableComponent::Custom(
+                    "settings_section_list".to_string(),
+                ),
                 // Network section components
                 crate::tui_dex::events::FocusableComponent::Dropdown(
                     "settings_network_environment".to_string(),
@@ -1584,7 +1595,9 @@ impl App {
                 crate::tui_dex::events::FocusableComponent::TextInput(
                     "settings_network_rpc".to_string(),
                 ),
-                crate::tui_dex::events::FocusableComponent::TextInput("settings_gas_price".to_string()),
+                crate::tui_dex::events::FocusableComponent::TextInput(
+                    "settings_gas_price".to_string(),
+                ),
                 crate::tui_dex::events::FocusableComponent::TextInput(
                     "settings_gas_adjustment".to_string(),
                 ),
@@ -1609,7 +1622,9 @@ impl App {
                 crate::tui_dex::events::FocusableComponent::TextInput(
                     "settings_decimal_precision".to_string(),
                 ),
-                crate::tui_dex::events::FocusableComponent::Button("settings_auto_refresh".to_string()),
+                crate::tui_dex::events::FocusableComponent::Button(
+                    "settings_auto_refresh".to_string(),
+                ),
                 // Action buttons
                 settings_save_button(),
                 settings_reset_button(),
@@ -2078,7 +2093,9 @@ impl App {
 
     /// Handle wallet selection screen specific events. Returns `true` if the event was handled.
     async fn handle_wallet_selection_event(&mut self, event: Event) -> Result<bool, Error> {
-        use crate::tui_dex::screens::wallet_selection::{WalletSelectionAction, WalletSelectionState};
+        use crate::tui_dex::screens::wallet_selection::{
+            WalletSelectionAction, WalletSelectionState,
+        };
 
         match event {
             Event::MoveFocus(crate::tui_dex::events::FocusDirection::Up) => {
@@ -2433,7 +2450,10 @@ impl App {
     }
 
     /// Sync swap screen state back to app state
-    fn sync_swap_state_to_app(&mut self, swap_state: &crate::tui_dex::screens::swap::SwapScreenState) {
+    fn sync_swap_state_to_app(
+        &mut self,
+        swap_state: &crate::tui_dex::screens::swap::SwapScreenState,
+    ) {
         // Update app state with changes from swap screen
         if let Some(selected_value) = swap_state.pool_dropdown.get_selected_value() {
             if let Ok(pool_id) = selected_value.parse::<u64>() {
@@ -2900,8 +2920,8 @@ impl App {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
                         // Send success event
-                        let _ =
-                            event_sender_clone.send(crate::tui_dex::events::Event::BlockchainSuccess {
+                        let _ = event_sender_clone.send(
+                            crate::tui_dex::events::Event::BlockchainSuccess {
                                 operation: "update_pool_features".to_string(),
                                 result: format!("Features updated for pool {}", pool_id_clone),
                                 transaction_hash: Some(format!(
@@ -2912,7 +2932,8 @@ impl App {
                                     "Features: {:?}, Enabled: {}",
                                     features_clone, enabled_clone
                                 )),
-                            });
+                            },
+                        );
                     });
                 } else {
                     self.set_error("No event sender available for feature update".to_string());
@@ -2947,7 +2968,8 @@ impl App {
                         crate::tui_dex::events::FocusDirection::Up => {
                             // Check if we're on the section list, then navigate sections
                             if let Some(focused) = self.state.focus_manager.current_focus() {
-                                if let crate::tui_dex::events::FocusableComponent::Custom(id) = focused
+                                if let crate::tui_dex::events::FocusableComponent::Custom(id) =
+                                    focused
                                 {
                                     if id == "settings_section_list" {
                                         self.state.settings_state.previous_section();
@@ -2961,7 +2983,8 @@ impl App {
                         crate::tui_dex::events::FocusDirection::Down => {
                             // Check if we're on the section list, then navigate sections
                             if let Some(focused) = self.state.focus_manager.current_focus() {
-                                if let crate::tui_dex::events::FocusableComponent::Custom(id) = focused
+                                if let crate::tui_dex::events::FocusableComponent::Custom(id) =
+                                    focused
                                 {
                                     if id == "settings_section_list" {
                                         self.state.settings_state.next_section();
@@ -3054,7 +3077,8 @@ impl App {
                 Event::Backspace => {
                     // Handle backspace for text input fields
                     if let Some(focused) = self.state.focus_manager.current_focus() {
-                        if let crate::tui_dex::events::FocusableComponent::TextInput(field_id) = focused
+                        if let crate::tui_dex::events::FocusableComponent::TextInput(field_id) =
+                            focused
                         {
                             match field_id.as_str() {
                                 "settings_network_name"
@@ -3239,7 +3263,8 @@ impl App {
 
     /// Show help modal
     pub fn show_help(&mut self) {
-        self.state.modal_state = Some(crate::tui_dex::components::modals::create_comprehensive_help());
+        self.state.modal_state =
+            Some(crate::tui_dex::components::modals::create_comprehensive_help());
     }
 
     /// Show quit confirmation modal
@@ -3300,9 +3325,10 @@ impl App {
                                 // User cancelled - just clear modal and handle cancellation
                                 self.state.modal_state = None;
                                 if self.state.current_screen == Screen::Swap {
-                                    let _ = crate::tui_dex::screens::swap::handle_confirmation_response(
-                                        false,
-                                    );
+                                    let _ =
+                                        crate::tui_dex::screens::swap::handle_confirmation_response(
+                                            false,
+                                        );
                                 } else if self.state.current_screen == Screen::Liquidity {
                                     let _ = crate::tui_dex::screens::liquidity::handle_liquidity_confirmation_response(
                                         false,
@@ -3312,7 +3338,8 @@ impl App {
                             }
                         }
                         crate::tui_dex::components::modals::ModalType::Error {
-                            retry_action, ..
+                            retry_action,
+                            ..
                         } => {
                             let should_retry = retry_action.is_some() && modal.selected_option == 0;
 
@@ -3445,8 +3472,9 @@ impl App {
                 self.state.modal_state = None;
 
                 // Determine which admin operation based on the modal title
-                if let crate::tui_dex::components::modals::ModalType::Confirmation { title, .. } =
-                    &modal_state.modal_type
+                if let crate::tui_dex::components::modals::ModalType::Confirmation {
+                    title, ..
+                } = &modal_state.modal_type
                 {
                     if title == "Confirm Pool Creation" {
                         // Handle pool creation confirmation
@@ -4686,7 +4714,9 @@ impl App {
         pool_id: Option<String>,
         slippage_tolerance: Option<String>,
     ) -> Result<(), Error> {
-        crate::tui_dex::utils::logger::log_info("=== EXECUTE REAL SWAP - BLOCKCHAIN TRANSACTION ===");
+        crate::tui_dex::utils::logger::log_info(
+            "=== EXECUTE REAL SWAP - BLOCKCHAIN TRANSACTION ===",
+        );
         crate::tui_dex::utils::logger::log_info(&format!("Starting blockchain swap execution:"));
         crate::tui_dex::utils::logger::log_info(&format!("  From Asset: {}", from_asset));
         crate::tui_dex::utils::logger::log_info(&format!("  To Asset: {}", to_asset));
@@ -4809,7 +4839,10 @@ impl App {
             "Offer asset created: {} {}",
             offer_asset.amount, offer_asset.denom
         ));
-        crate::tui_dex::utils::logger::log_info(&format!("Target denomination: {}", actual_to_denom));
+        crate::tui_dex::utils::logger::log_info(&format!(
+            "Target denomination: {}",
+            actual_to_denom
+        ));
 
         // Execute the swap using actual denominations
         crate::tui_dex::utils::logger::log_info("=== CALLING BLOCKCHAIN SWAP METHOD ===");
@@ -4831,7 +4864,10 @@ impl App {
             Ok(tx_response) => {
                 let elapsed = swap_start_time.elapsed();
                 crate::tui_dex::utils::logger::log_info("=== BLOCKCHAIN SWAP SUCCESS ===");
-                crate::tui_dex::utils::logger::log_info(&format!("Swap execution time: {:?}", elapsed));
+                crate::tui_dex::utils::logger::log_info(&format!(
+                    "Swap execution time: {:?}",
+                    elapsed
+                ));
                 crate::tui_dex::utils::logger::log_info(&format!(
                     "Transaction Hash: {}",
                     tx_response.txhash
@@ -4840,13 +4876,19 @@ impl App {
                     "Transaction Code: {}",
                     tx_response.code
                 ));
-                crate::tui_dex::utils::logger::log_info(&format!("Gas Used: {}", tx_response.gas_used));
+                crate::tui_dex::utils::logger::log_info(&format!(
+                    "Gas Used: {}",
+                    tx_response.gas_used
+                ));
                 crate::tui_dex::utils::logger::log_info(&format!(
                     "Gas Wanted: {}",
                     tx_response.gas_wanted
                 ));
                 crate::tui_dex::utils::logger::log_info(&format!("Height: {}", tx_response.height));
-                crate::tui_dex::utils::logger::log_info(&format!("Raw Log: {}", tx_response.raw_log));
+                crate::tui_dex::utils::logger::log_info(&format!(
+                    "Raw Log: {}",
+                    tx_response.raw_log
+                ));
 
                 // Log transaction events if any
                 if !tx_response.events.is_empty() {
@@ -5664,8 +5706,12 @@ impl App {
 
         // Show global confirmation modal
         let title = match liquidity_state.mode {
-            crate::tui_dex::screens::liquidity::LiquidityMode::Provide => "Confirm Provide Liquidity",
-            crate::tui_dex::screens::liquidity::LiquidityMode::Withdraw => "Confirm Withdraw Liquidity",
+            crate::tui_dex::screens::liquidity::LiquidityMode::Provide => {
+                "Confirm Provide Liquidity"
+            }
+            crate::tui_dex::screens::liquidity::LiquidityMode::Withdraw => {
+                "Confirm Withdraw Liquidity"
+            }
             _ => "Confirm Liquidity Operation",
         };
 
@@ -5808,7 +5854,9 @@ impl App {
                     details.len()
                 ));
             } else {
-                crate::tui_dex::utils::logger::log_warning("Failed to parse enhanced liquidity data");
+                crate::tui_dex::utils::logger::log_warning(
+                    "Failed to parse enhanced liquidity data",
+                );
             }
         }
 

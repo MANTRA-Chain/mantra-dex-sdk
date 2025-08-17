@@ -1,10 +1,8 @@
 /// ClaimDrop Factory client for creating and managing claimdrop campaigns
-
 use crate::error::Error;
 use crate::wallet::MantraWallet;
 use cosmrs::rpc::{Client as RpcClient, HttpClient};
 use cosmrs::tx::Fee;
-use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -12,15 +10,26 @@ use tokio::sync::Mutex;
 // Note: These are local types based on claimdrop-factory contract
 #[derive(serde::Serialize, Clone)]
 pub enum FactoryExecuteMsg {
-    CreateCampaign { params: mantra_claimdrop_std::msg::CampaignParams },
-    UpdateConfig { claimdrop_code_id: Option<u64> },
+    CreateCampaign {
+        params: mantra_claimdrop_std::msg::CampaignParams,
+    },
+    UpdateConfig {
+        claimdrop_code_id: Option<u64>,
+    },
 }
 
 #[derive(serde::Serialize, Clone)]
 pub enum FactoryQueryMsg {
-    Allocations { address: String },
-    Campaigns { start_after: Option<String>, limit: Option<u16> },
-    UserRewards { address: String },
+    Allocations {
+        address: String,
+    },
+    Campaigns {
+        start_after: Option<String>,
+        limit: Option<u16>,
+    },
+    UserRewards {
+        address: String,
+    },
 }
 
 #[derive(serde::Deserialize)]
@@ -94,7 +103,6 @@ impl ClaimdropFactoryClient {
     ) -> Result<R, Error> {
         use cosmos_sdk_proto::cosmwasm::wasm::v1::QuerySmartContractStateRequest;
         use prost::Message;
-        use serde::de::DeserializeOwned;
 
         let rpc_client = self.rpc_client.lock().await;
         let query = QuerySmartContractStateRequest {
@@ -120,8 +128,8 @@ impl ClaimdropFactoryClient {
             )));
         }
 
-        let response_data: R = serde_json::from_slice(&result.value)
-            .map_err(|e| Error::Serialization(e))?;
+        let response_data: R =
+            serde_json::from_slice(&result.value).map_err(|e| Error::Serialization(e))?;
 
         Ok(response_data)
     }
@@ -129,8 +137,8 @@ impl ClaimdropFactoryClient {
     /// Helper method to execute a factory contract message
     async fn execute<T: serde::Serialize>(
         &self,
-        msg: &T,
-        funds: Vec<cosmwasm_std::Coin>,
+        _msg: &T,
+        _funds: Vec<cosmwasm_std::Coin>,
         _fee: Fee,
     ) -> Result<ClaimdropOperationResult, Error> {
         // This is a simplified implementation - a full implementation would handle
@@ -156,9 +164,9 @@ impl ClaimdropFactoryClient {
             start_after: start_after.map(|s| s.to_string()),
             limit,
         };
-        
+
         let response: FactoryCampaignsResponse = self.query(&query_msg).await?;
-        
+
         // Convert to our CampaignsResponse type
         Ok(CampaignsResponse {
             campaigns: response.campaigns,
@@ -175,9 +183,10 @@ impl ClaimdropFactoryClient {
         };
 
         let response: FactoryAllocationsResponse = self.query(&query_msg).await?;
-        
+
         // Convert to our AllocationsResponse type
-        let allocations = response.allocations
+        let allocations = response
+            .allocations
             .into_iter()
             .map(|(addr, coin)| Allocation {
                 user: addr,
@@ -195,9 +204,10 @@ impl ClaimdropFactoryClient {
         };
 
         let response: FactoryUserRewardsResponse = self.query(&query_msg).await?;
-        
+
         // Convert to our AggregatedRewards type
-        let campaign_rewards: Vec<CampaignReward> = response.rewards
+        let campaign_rewards: Vec<CampaignReward> = response
+            .rewards
             .into_iter()
             .map(|r| CampaignReward {
                 campaign_address: r.campaign_address,
@@ -209,15 +219,18 @@ impl ClaimdropFactoryClient {
 
         Ok(AggregatedRewards {
             total_campaigns: campaign_rewards.len() as u32,
-            total_claimed: campaign_rewards.iter()
+            total_claimed: campaign_rewards
+                .iter()
                 .flat_map(|r| r.claimed.iter())
                 .cloned()
                 .collect(),
-            total_pending: campaign_rewards.iter()
+            total_pending: campaign_rewards
+                .iter()
                 .flat_map(|r| r.pending.iter())
                 .cloned()
                 .collect(),
-            total_available: campaign_rewards.iter()
+            total_available: campaign_rewards
+                .iter()
                 .flat_map(|r| r.available_to_claim.iter())
                 .cloned()
                 .collect(),
@@ -233,13 +246,10 @@ impl ClaimdropFactoryClient {
         params: mantra_claimdrop_std::msg::CampaignParams,
         fee: Fee,
     ) -> Result<ClaimdropOperationResult, Error> {
-        let wallet = self
-            .wallet
-            .as_ref()
-            .ok_or_else(|| Error::WalletNotSet)?;
+        self.wallet.as_ref().ok_or_else(|| Error::WalletNotSet)?;
 
         let msg = FactoryExecuteMsg::CreateCampaign { params };
-        
+
         // Execute the create_campaign message on the factory
         self.execute(&msg, vec![], fee).await
     }
@@ -250,13 +260,10 @@ impl ClaimdropFactoryClient {
         claimdrop_code_id: Option<u64>,
         fee: Fee,
     ) -> Result<ClaimdropOperationResult, Error> {
-        let wallet = self
-            .wallet
-            .as_ref()
-            .ok_or_else(|| Error::WalletNotSet)?;
+        self.wallet.as_ref().ok_or_else(|| Error::WalletNotSet)?;
 
         let msg = FactoryExecuteMsg::UpdateConfig { claimdrop_code_id };
-        
+
         // Execute the update_config message on the factory
         self.execute(&msg, vec![], fee).await
     }
@@ -274,12 +281,11 @@ impl ClaimdropFactoryClient {
     pub async fn get_campaign_stats(&self) -> Result<CampaignStats, Error> {
         // Query all campaigns first
         let campaigns_response = self.query_campaigns(None, None).await?;
-        
-        let mut total_campaigns = campaigns_response.campaigns.len() as u32;
-        let mut active_campaigns = 0u32;
-        let mut total_allocated = cosmwasm_std::Uint128::zero();
-        let mut total_claimed = cosmwasm_std::Uint128::zero();
-        
+
+        let total_campaigns = campaigns_response.campaigns.len() as u32;
+        let total_allocated = cosmwasm_std::Uint128::zero();
+        let total_claimed = cosmwasm_std::Uint128::zero();
+
         // For now, return basic stats based on campaign count
         // In a full implementation, we would query each campaign for detailed stats
         Ok(CampaignStats {

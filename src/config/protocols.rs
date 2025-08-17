@@ -1,8 +1,8 @@
+use config::{Config as ConfigLoader, File};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
-use config::{Config as ConfigLoader, ConfigError, File};
 use std::env;
+use std::time::Duration;
 
 use crate::error::Error;
 
@@ -58,11 +58,11 @@ pub struct FeeConfig {
 impl Default for FeeConfig {
     fn default() -> Self {
         Self {
-            default_tx_fee: 5000,      // 0.005 OM
+            default_tx_fee: 5000, // 0.005 OM
             gas_price_multiplier: 1.5,
-            max_fee: 100000,           // 0.1 OM
-            protocol_fee_bps: 30,      // 0.3%
-            min_fee: 1000,             // 0.001 OM
+            max_fee: 100000,      // 0.1 OM
+            protocol_fee_bps: 30, // 0.3%
+            min_fee: 1000,        // 0.001 OM
         }
     }
 }
@@ -142,9 +142,9 @@ pub struct ProtocolParameters {
 impl Default for ProtocolParameters {
     fn default() -> Self {
         Self {
-            max_slippage_bps: 1000,    // 10%
-            default_slippage_bps: 50,  // 0.5%
-            min_trade_amount: 1000,    // 0.001 OM
+            max_slippage_bps: 1000,       // 10%
+            default_slippage_bps: 50,     // 0.5%
+            min_trade_amount: 1000,       // 0.001 OM
             max_trade_amount: 1000000000, // 1000 OM
             custom_params: HashMap::new(),
         }
@@ -320,7 +320,7 @@ impl ProtocolRegistry {
     /// Load protocol configurations from config files or environment
     pub fn load() -> Result<Self, Error> {
         let mut registry = Self::new();
-        
+
         // Try to load from configuration files
         if let Err(_) = registry.load_from_config() {
             // If config loading fails, use defaults
@@ -333,7 +333,7 @@ impl ProtocolRegistry {
     /// Load protocol configurations from config files
     fn load_from_config(&mut self) -> Result<(), Error> {
         let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
-        
+
         let config_paths = vec![
             format!("{}/protocols", config_dir),
             "config/protocols".to_string(),
@@ -351,7 +351,9 @@ impl ProtocolRegistry {
             }
         }
 
-        Err(Error::Config("No protocol configuration file found".to_string()))
+        Err(Error::Config(
+            "No protocol configuration file found".to_string(),
+        ))
     }
 
     /// Load protocols from configuration settings
@@ -360,7 +362,7 @@ impl ProtocolRegistry {
 
         for protocol in &protocols {
             let protocol_str = protocol.to_string();
-            
+
             // Check if protocol section exists
             if let Ok(enabled) = settings.get::<bool>(&format!("{}.enabled", protocol_str)) {
                 let mut config = ProtocolConfig::new(protocol.clone(), enabled);
@@ -376,13 +378,13 @@ impl ProtocolRegistry {
 
                 // Load parameters
                 self.load_protocol_parameters(&mut config, settings, &protocol_str)?;
-                
+
                 // Load fee configuration
                 self.load_fee_config(&mut config, settings, &protocol_str)?;
-                
+
                 // Load rate limits
                 self.load_rate_limits(&mut config, settings, &protocol_str)?;
-                
+
                 // Load health configuration
                 self.load_health_config(&mut config, settings, &protocol_str)?;
 
@@ -404,19 +406,25 @@ impl ProtocolRegistry {
     ) -> Result<(), Error> {
         let params_prefix = format!("{}.parameters", protocol);
 
-        if let Ok(max_slippage) = settings.get::<u16>(&format!("{}.max_slippage_bps", params_prefix)) {
+        if let Ok(max_slippage) =
+            settings.get::<u16>(&format!("{}.max_slippage_bps", params_prefix))
+        {
             config.parameters.max_slippage_bps = max_slippage;
         }
 
-        if let Ok(default_slippage) = settings.get::<u16>(&format!("{}.default_slippage_bps", params_prefix)) {
+        if let Ok(default_slippage) =
+            settings.get::<u16>(&format!("{}.default_slippage_bps", params_prefix))
+        {
             config.parameters.default_slippage_bps = default_slippage;
         }
 
-        if let Ok(min_amount) = settings.get::<u64>(&format!("{}.min_trade_amount", params_prefix)) {
+        if let Ok(min_amount) = settings.get::<u64>(&format!("{}.min_trade_amount", params_prefix))
+        {
             config.parameters.min_trade_amount = min_amount;
         }
 
-        if let Ok(max_amount) = settings.get::<u64>(&format!("{}.max_trade_amount", params_prefix)) {
+        if let Ok(max_amount) = settings.get::<u64>(&format!("{}.max_trade_amount", params_prefix))
+        {
             config.parameters.max_trade_amount = max_amount;
         }
 
@@ -436,7 +444,9 @@ impl ProtocolRegistry {
             config.fees.default_tx_fee = default_fee;
         }
 
-        if let Ok(multiplier) = settings.get::<f64>(&format!("{}.gas_price_multiplier", fees_prefix)) {
+        if let Ok(multiplier) =
+            settings.get::<f64>(&format!("{}.gas_price_multiplier", fees_prefix))
+        {
             config.fees.gas_price_multiplier = multiplier;
         }
 
@@ -444,7 +454,8 @@ impl ProtocolRegistry {
             config.fees.max_fee = max_fee;
         }
 
-        if let Ok(protocol_fee) = settings.get::<u16>(&format!("{}.protocol_fee_bps", fees_prefix)) {
+        if let Ok(protocol_fee) = settings.get::<u16>(&format!("{}.protocol_fee_bps", fees_prefix))
+        {
             config.fees.protocol_fee_bps = protocol_fee;
         }
 
@@ -472,7 +483,8 @@ impl ProtocolRegistry {
             config.rate_limits.max_concurrent_ops = max_ops;
         }
 
-        if let Ok(timeout) = settings.get::<u64>(&format!("{}.request_timeout_secs", limits_prefix)) {
+        if let Ok(timeout) = settings.get::<u64>(&format!("{}.request_timeout_secs", limits_prefix))
+        {
             config.rate_limits.request_timeout_secs = timeout;
         }
 
@@ -496,27 +508,36 @@ impl ProtocolRegistry {
     ) -> Result<(), Error> {
         let health_prefix = format!("{}.health", protocol);
 
-        if let Ok(interval) = settings.get::<u64>(&format!("{}.check_interval_secs", health_prefix)) {
+        if let Ok(interval) = settings.get::<u64>(&format!("{}.check_interval_secs", health_prefix))
+        {
             config.health.check_interval_secs = interval;
         }
 
-        if let Ok(threshold) = settings.get::<u32>(&format!("{}.failure_threshold", health_prefix)) {
+        if let Ok(threshold) = settings.get::<u32>(&format!("{}.failure_threshold", health_prefix))
+        {
             config.health.failure_threshold = threshold;
         }
 
-        if let Ok(timeout) = settings.get::<u64>(&format!("{}.health_check_timeout_secs", health_prefix)) {
+        if let Ok(timeout) =
+            settings.get::<u64>(&format!("{}.health_check_timeout_secs", health_prefix))
+        {
             config.health.health_check_timeout_secs = timeout;
         }
 
-        if let Ok(auto_recovery) = settings.get::<bool>(&format!("{}.auto_recovery", health_prefix)) {
+        if let Ok(auto_recovery) = settings.get::<bool>(&format!("{}.auto_recovery", health_prefix))
+        {
             config.health.auto_recovery = auto_recovery;
         }
 
-        if let Ok(recovery_interval) = settings.get::<u64>(&format!("{}.recovery_interval_secs", health_prefix)) {
+        if let Ok(recovery_interval) =
+            settings.get::<u64>(&format!("{}.recovery_interval_secs", health_prefix))
+        {
             config.health.recovery_interval_secs = recovery_interval;
         }
 
-        if let Ok(max_attempts) = settings.get::<u32>(&format!("{}.max_recovery_attempts", health_prefix)) {
+        if let Ok(max_attempts) =
+            settings.get::<u32>(&format!("{}.max_recovery_attempts", health_prefix))
+        {
             config.health.max_recovery_attempts = max_attempts;
         }
 
@@ -536,7 +557,8 @@ impl ProtocolRegistry {
         let mut claimdrop_config = ProtocolConfig::new(ProtocolId::ClaimDrop, true);
         claimdrop_config.priority = 500;
         claimdrop_config.rate_limits.requests_per_minute = 30; // Lower limits
-        self.protocols.insert(ProtocolId::ClaimDrop, claimdrop_config);
+        self.protocols
+            .insert(ProtocolId::ClaimDrop, claimdrop_config);
 
         // Skip Protocol - Cross-chain, enabled by default
         let mut skip_config = ProtocolConfig::new(ProtocolId::Skip, true);
@@ -555,12 +577,12 @@ impl ProtocolRegistry {
 
     /// Get protocol configuration
     pub fn get_protocol(&self, protocol_id: &ProtocolId) -> Option<ProtocolConfig> {
-        self.protocols.get(protocol_id).map(|config| {
-            match &self.active_network {
+        self.protocols
+            .get(protocol_id)
+            .map(|config| match &self.active_network {
                 Some(network) => config.for_network(network),
                 None => config.clone(),
-            }
-        })
+            })
     }
 
     /// Check if protocol is enabled
@@ -572,7 +594,8 @@ impl ProtocolRegistry {
 
     /// Get all enabled protocols, sorted by priority
     pub fn get_enabled_protocols(&self) -> Vec<(ProtocolId, ProtocolConfig)> {
-        let mut enabled: Vec<_> = self.protocols
+        let mut enabled: Vec<_> = self
+            .protocols
             .iter()
             .filter_map(|(id, config)| {
                 let effective_config = match &self.active_network {
@@ -593,19 +616,30 @@ impl ProtocolRegistry {
     }
 
     /// Update protocol configuration
-    pub fn update_protocol(&mut self, protocol_id: ProtocolId, config: ProtocolConfig) -> Result<(), Error> {
+    pub fn update_protocol(
+        &mut self,
+        protocol_id: ProtocolId,
+        config: ProtocolConfig,
+    ) -> Result<(), Error> {
         config.validate()?;
         self.protocols.insert(protocol_id, config);
         Ok(())
     }
 
     /// Enable or disable a protocol
-    pub fn set_protocol_enabled(&mut self, protocol_id: &ProtocolId, enabled: bool) -> Result<(), Error> {
+    pub fn set_protocol_enabled(
+        &mut self,
+        protocol_id: &ProtocolId,
+        enabled: bool,
+    ) -> Result<(), Error> {
         if let Some(config) = self.protocols.get_mut(protocol_id) {
             config.enabled = enabled;
             Ok(())
         } else {
-            Err(Error::Config(format!("Protocol {:?} not found", protocol_id)))
+            Err(Error::Config(format!(
+                "Protocol {:?} not found",
+                protocol_id
+            )))
         }
     }
 
@@ -613,7 +647,10 @@ impl ProtocolRegistry {
     pub fn validate_all(&self) -> Result<(), Error> {
         for (protocol_id, config) in &self.protocols {
             config.validate().map_err(|e| {
-                Error::Config(format!("Protocol {:?} validation failed: {}", protocol_id, e))
+                Error::Config(format!(
+                    "Protocol {:?} validation failed: {}",
+                    protocol_id, e
+                ))
             })?;
         }
         Ok(())
@@ -633,10 +670,10 @@ mod tests {
     #[test]
     fn test_protocol_config_validation() {
         let mut config = ProtocolConfig::new(ProtocolId::Dex, true);
-        
+
         // Valid configuration should pass
         assert!(config.validate().is_ok());
-        
+
         // Invalid slippage should fail
         config.parameters.default_slippage_bps = 2000;
         config.parameters.max_slippage_bps = 1000;
@@ -646,7 +683,7 @@ mod tests {
     #[test]
     fn test_fee_calculation() {
         let config = ProtocolConfig::new(ProtocolId::Dex, true);
-        
+
         let fee = config.calculate_fee(100000);
         assert!(fee >= config.fees.min_fee);
         assert!(fee <= config.fees.max_fee);
@@ -656,10 +693,10 @@ mod tests {
     fn test_protocol_registry() {
         let mut registry = ProtocolRegistry::new();
         registry.load_defaults().unwrap();
-        
+
         assert!(registry.is_protocol_enabled(&ProtocolId::Dex));
         assert!(registry.get_protocol(&ProtocolId::Dex).is_some());
-        
+
         let enabled_protocols = registry.get_enabled_protocols();
         assert!(!enabled_protocols.is_empty());
     }
@@ -667,7 +704,7 @@ mod tests {
     #[test]
     fn test_network_overrides() {
         let mut config = ProtocolConfig::new(ProtocolId::Dex, true);
-        
+
         let override_config = ProtocolConfigOverride {
             enabled: Some(false),
             parameters: None,
@@ -675,12 +712,14 @@ mod tests {
             rate_limits: None,
             health: None,
         };
-        
-        config.network_overrides.insert("testnet".to_string(), override_config);
-        
+
+        config
+            .network_overrides
+            .insert("testnet".to_string(), override_config);
+
         let testnet_config = config.for_network("testnet");
         assert!(!testnet_config.enabled);
-        
+
         let mainnet_config = config.for_network("mainnet");
         assert!(mainnet_config.enabled);
     }

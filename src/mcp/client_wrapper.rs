@@ -377,19 +377,18 @@ impl Default for McpClientWrapper {
             native_denom: "uaum".to_string(),
         };
 
-        let config = MantraNetworkConfig::from_constants(&testnet_constants)
-            .unwrap_or_else(|_| {
-                // Fallback to creating a network config manually if loading fails
-                MantraNetworkConfig {
-                    network_name: testnet_constants.network_name.clone(),
-                    chain_id: testnet_constants.chain_id.clone(),
-                    rpc_url: testnet_constants.default_rpc.clone(),
-                    gas_price: testnet_constants.default_gas_price,
-                    gas_adjustment: testnet_constants.default_gas_adjustment,
-                    native_denom: testnet_constants.native_denom.clone(),
-                    contracts: crate::config::ContractAddresses::default(),
-                }
-            });
+        let config = MantraNetworkConfig::from_constants(&testnet_constants).unwrap_or_else(|_| {
+            // Fallback to creating a network config manually if loading fails
+            MantraNetworkConfig {
+                network_name: testnet_constants.network_name.clone(),
+                chain_id: testnet_constants.chain_id.clone(),
+                rpc_url: testnet_constants.default_rpc.clone(),
+                gas_price: testnet_constants.default_gas_price,
+                gas_adjustment: testnet_constants.default_gas_adjustment,
+                native_denom: testnet_constants.native_denom.clone(),
+                contracts: crate::config::ContractAddresses::default(),
+            }
+        });
 
         Self::new(Arc::new(McpSdkAdapter::default()), config)
     }

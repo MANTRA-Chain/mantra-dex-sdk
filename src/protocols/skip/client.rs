@@ -1,21 +1,17 @@
 /// Skip Protocol Client for cross-chain routing operations
-/// 
+///
 /// This client integrates with Skip API for asset routing, cross-chain swaps, and bridge operations.
-
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use cosmrs::rpc::{Client as RpcClient, HttpClient};
 use cosmwasm_std::{Coin, Decimal, Uint128};
 use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::config::MantraNetworkConfig;
 use crate::error::Error;
 use crate::wallet::MantraWallet;
 
@@ -24,10 +20,6 @@ use super::types::*;
 /// Skip protocol client for cross-chain operations
 #[derive(Debug)]
 pub struct SkipClient {
-    /// RPC client for blockchain communication
-    rpc_client: Arc<Mutex<HttpClient>>,
-    /// Network configuration
-    config: MantraNetworkConfig,
     /// Optional wallet for signing transactions
     wallet: Option<Arc<MantraWallet>>,
     /// Skip adapter contract address
@@ -42,21 +34,13 @@ pub struct SkipClient {
 
 impl SkipClient {
     /// Create a new Skip client
-    pub async fn new(
-        config: MantraNetworkConfig,
-        wallet: Option<Arc<MantraWallet>>,
-    ) -> Result<Self, Error> {
-        let rpc_client = HttpClient::new(config.rpc_url.as_str())
-            .map_err(|e| Error::Rpc(format!("Failed to create RPC client: {}", e)))?;
-
+    pub async fn new(wallet: Option<Arc<MantraWallet>>) -> Result<Self, Error> {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| Error::Skip(format!("Failed to create HTTP client: {}", e)))?;
 
         Ok(Self {
-            rpc_client: Arc::new(Mutex::new(rpc_client)),
-            config,
             wallet,
             adapter_contract: None,
             http_client,
@@ -93,7 +77,7 @@ impl SkipClient {
     // ============================================================================
 
     /// Find optimal cross-chain routes between assets
-    /// 
+    ///
     /// This method discovers the best routes for transferring assets across chains,
     /// considering factors like fees, time, and slippage.
     pub async fn get_route(
@@ -103,7 +87,7 @@ impl SkipClient {
         options: Option<RouteOptions>,
     ) -> Result<Vec<CrossChainRoute>, Error> {
         let opts = options.unwrap_or_default();
-        
+
         // Build route request for Skip API
         let request = json!({
             "amount_in": source_asset.amount.to_string(),
@@ -117,7 +101,8 @@ impl SkipClient {
             "cumulative_affiliate_fee_bps": opts.affiliate_fee_bps.map(|f| f.to_string()),
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&format!("{}/v1/fungible/route", self.skip_api_base_url))
             .json(&request)
             .send()
@@ -129,14 +114,16 @@ impl SkipClient {
             return Err(Error::Skip(format!("Skip API error: {}", error_text)));
         }
 
-        let route_response: Value = response.json().await
+        let route_response: Value = response
+            .json()
+            .await
             .map_err(|e| Error::Skip(format!("Failed to parse route response: {}", e)))?;
 
         self.parse_routes_from_response(route_response, source_asset, target_asset)
     }
 
     /// Monitor cross-chain transfer status and progress
-    /// 
+    ///
     /// Tracks the status of a previously initiated transfer using its unique identifier.
     pub async fn track_transfer(&self, transfer_id: &str) -> Result<TransferResult, Error> {
         // First check local cache
@@ -145,8 +132,10 @@ impl SkipClient {
             if let Some(cached_result) = transfers.get(transfer_id) {
                 // If transfer is completed or failed, return cached result
                 match cached_result.status {
-                    TransferStatus::Completed | TransferStatus::Failed | 
-                    TransferStatus::TimedOut | TransferStatus::Refunded => {
+                    TransferStatus::Completed
+                    | TransferStatus::Failed
+                    | TransferStatus::TimedOut
+                    | TransferStatus::Refunded => {
                         return Ok(cached_result.clone());
                     }
                     _ => {}
@@ -155,7 +144,8 @@ impl SkipClient {
         }
 
         // Query Skip API for transfer status
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&format!("{}/v1/tx/track", self.skip_api_base_url))
             .query(&[("tx_id", transfer_id)])
             .send()
@@ -164,10 +154,15 @@ impl SkipClient {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(Error::Skip(format!("Skip tracking API error: {}", error_text)));
+            return Err(Error::Skip(format!(
+                "Skip tracking API error: {}",
+                error_text
+            )));
         }
 
-        let tracking_response: Value = response.json().await
+        let tracking_response: Value = response
+            .json()
+            .await
             .map_err(|e| Error::Skip(format!("Failed to parse tracking response: {}", e)))?;
 
         let result = self.parse_transfer_status(transfer_id, tracking_response)?;
@@ -182,11 +177,12 @@ impl SkipClient {
     }
 
     /// List available chains and their configurations
-    /// 
+    ///
     /// Returns information about all chains supported by Skip protocol,
     /// including available bridges and supported assets.
     pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>, Error> {
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&format!("{}/v1/info/chains", self.skip_api_base_url))
             .send()
             .await
@@ -194,19 +190,27 @@ impl SkipClient {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(Error::Skip(format!("Skip chains API error: {}", error_text)));
+            return Err(Error::Skip(format!(
+                "Skip chains API error: {}",
+                error_text
+            )));
         }
 
-        let chains_response: Value = response.json().await
+        let chains_response: Value = response
+            .json()
+            .await
             .map_err(|e| Error::Skip(format!("Failed to parse chains response: {}", e)))?;
 
         self.parse_supported_chains(chains_response)
     }
 
     /// Validate assets across different chains
-    /// 
+    ///
     /// Verifies that the specified assets exist and are supported for cross-chain operations.
-    pub async fn verify_assets(&self, assets: &[CrossChainAsset]) -> Result<AssetVerificationResult, Error> {
+    pub async fn verify_assets(
+        &self,
+        assets: &[CrossChainAsset],
+    ) -> Result<AssetVerificationResult, Error> {
         let mut verified_assets = Vec::new();
         let mut invalid_assets = Vec::new();
 
@@ -233,14 +237,14 @@ impl SkipClient {
     }
 
     /// Execute cross-chain asset transfers
-    /// 
+    ///
     /// Performs the actual cross-chain transfer using the specified route and parameters.
     pub async fn execute_cross_chain_transfer(
         &self,
         request: &TransferRequest,
     ) -> Result<TransferResult, Error> {
         // Validate wallet is configured
-        let wallet = self.wallet()?;
+        self.wallet()?;
 
         // Generate unique transfer ID
         let transfer_id = Uuid::new_v4().to_string();
@@ -256,10 +260,12 @@ impl SkipClient {
             dest_tx_hash: None,
             amount_transferred: None,
             error_message: None,
-            initiated_at: Some(SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()),
+            initiated_at: Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            ),
             completed_at: None,
         };
 
@@ -291,7 +297,7 @@ impl SkipClient {
     }
 
     /// Estimate fees for cross-chain operations
-    /// 
+    ///
     /// Calculates the total fees required for a cross-chain transfer including
     /// network fees, bridge fees, and protocol fees.
     pub async fn estimate_fees(&self, request: &TransferRequest) -> Result<FeeEstimate, Error> {
@@ -299,8 +305,12 @@ impl SkipClient {
         let route = match &request.route {
             Some(route) => route.clone(),
             None => {
-                let routes = self.get_route(&request.source_asset, &request.target_asset, None).await?;
-                routes.into_iter().next()
+                let routes = self
+                    .get_route(&request.source_asset, &request.target_asset, None)
+                    .await?;
+                routes
+                    .into_iter()
+                    .next()
                     .ok_or_else(|| Error::Skip("No route found for fee estimation".to_string()))?
             }
         };
@@ -345,7 +355,8 @@ impl SkipClient {
         source: &CrossChainAsset,
         target: &CrossChainAsset,
     ) -> Result<Vec<CrossChainRoute>, Error> {
-        let routes = response.get("routes")
+        let routes = response
+            .get("routes")
             .and_then(|r| r.as_array())
             .ok_or_else(|| Error::Skip("Invalid routes response format".to_string()))?;
 
@@ -367,30 +378,34 @@ impl SkipClient {
         target: &CrossChainAsset,
     ) -> Result<CrossChainRoute, Error> {
         let empty_vec = vec![];
-        let operations = route_data.get("operations")
+        let operations = route_data
+            .get("operations")
             .and_then(|ops| ops.as_array())
             .unwrap_or(&empty_vec);
 
         let mut steps = Vec::new();
         for (i, op) in operations.iter().enumerate() {
             let step = RouteStep {
-                chain: op.get("chain_id")
+                chain: op
+                    .get("chain_id")
                     .and_then(|c| c.as_str())
                     .unwrap_or("unknown")
                     .to_string(),
                 step_type: self.determine_step_type(op),
-                asset_in: if i == 0 { source.clone() } else { 
+                asset_in: if i == 0 {
+                    source.clone()
+                } else {
                     // Parse intermediate asset
                     self.parse_asset_from_operation(op, "asset_in")?
                 },
-                asset_out: if i == operations.len() - 1 { target.clone() } else {
+                asset_out: if i == operations.len() - 1 {
+                    target.clone()
+                } else {
                     // Parse intermediate asset
                     self.parse_asset_from_operation(op, "asset_out")?
                 },
-                estimated_time_seconds: op.get("estimated_time")
-                    .and_then(|t| t.as_u64()),
-                fee: op.get("fee")
-                    .and_then(|f| self.parse_fee(f).ok()),
+                estimated_time_seconds: op.get("estimated_time").and_then(|t| t.as_u64()),
+                fee: op.get("fee").and_then(|f| self.parse_fee(f).ok()),
             };
             steps.push(step);
         }
@@ -399,13 +414,14 @@ impl SkipClient {
             source_chain: source.chain.clone(),
             dest_chain: target.chain.clone(),
             steps,
-            estimated_time_seconds: route_data.get("estimated_time")
-                .and_then(|t| t.as_u64()),
-            estimated_fees: route_data.get("fees")
+            estimated_time_seconds: route_data.get("estimated_time").and_then(|t| t.as_u64()),
+            estimated_fees: route_data
+                .get("fees")
                 .and_then(|fees| fees.as_array())
                 .map(|fees| fees.iter().filter_map(|f| self.parse_fee(f).ok()).collect())
                 .unwrap_or_default(),
-            price_impact: route_data.get("price_impact")
+            price_impact: route_data
+                .get("price_impact")
                 .and_then(|p| p.as_str())
                 .and_then(|s| Decimal::from_str(s).ok()),
         })
@@ -413,7 +429,8 @@ impl SkipClient {
 
     /// Determine the type of a route step from operation data
     fn determine_step_type(&self, operation: &Value) -> RouteStepType {
-        let op_type = operation.get("type")
+        let op_type = operation
+            .get("type")
             .and_then(|t| t.as_str())
             .unwrap_or("transfer");
 
@@ -426,27 +443,37 @@ impl SkipClient {
     }
 
     /// Parse asset from operation data
-    fn parse_asset_from_operation(&self, operation: &Value, field: &str) -> Result<CrossChainAsset, Error> {
-        let asset_data = operation.get(field)
+    fn parse_asset_from_operation(
+        &self,
+        operation: &Value,
+        field: &str,
+    ) -> Result<CrossChainAsset, Error> {
+        let asset_data = operation
+            .get(field)
             .ok_or_else(|| Error::Skip(format!("Missing {} in operation", field)))?;
 
         Ok(CrossChainAsset {
-            denom: asset_data.get("denom")
+            denom: asset_data
+                .get("denom")
                 .and_then(|d| d.as_str())
                 .unwrap_or("")
                 .to_string(),
-            amount: asset_data.get("amount")
+            amount: asset_data
+                .get("amount")
                 .and_then(|a| a.as_str())
                 .and_then(|s| Uint128::from_str(s).ok())
                 .unwrap_or_default(),
-            chain: asset_data.get("chain_id")
+            chain: asset_data
+                .get("chain_id")
                 .and_then(|c| c.as_str())
                 .unwrap_or("")
                 .to_string(),
-            decimals: asset_data.get("decimals")
+            decimals: asset_data
+                .get("decimals")
                 .and_then(|d| d.as_u64())
                 .map(|d| d as u8),
-            symbol: asset_data.get("symbol")
+            symbol: asset_data
+                .get("symbol")
                 .and_then(|s| s.as_str())
                 .map(|s| s.to_string()),
         })
@@ -454,11 +481,13 @@ impl SkipClient {
 
     /// Parse fee from response data
     fn parse_fee(&self, fee_data: &Value) -> Result<Coin, Error> {
-        let denom = fee_data.get("denom")
+        let denom = fee_data
+            .get("denom")
             .and_then(|d| d.as_str())
             .ok_or_else(|| Error::Skip("Missing fee denom".to_string()))?;
 
-        let amount = fee_data.get("amount")
+        let amount = fee_data
+            .get("amount")
             .and_then(|a| a.as_str())
             .and_then(|s| Uint128::from_str(s).ok())
             .ok_or_else(|| Error::Skip("Invalid fee amount".to_string()))?;
@@ -470,8 +499,13 @@ impl SkipClient {
     }
 
     /// Parse transfer status from tracking response
-    fn parse_transfer_status(&self, transfer_id: &str, response: Value) -> Result<TransferResult, Error> {
-        let state = response.get("state")
+    fn parse_transfer_status(
+        &self,
+        transfer_id: &str,
+        response: Value,
+    ) -> Result<TransferResult, Error> {
+        let state = response
+            .get("state")
             .and_then(|s| s.as_str())
             .unwrap_or("unknown");
 
@@ -488,28 +522,31 @@ impl SkipClient {
         Ok(TransferResult {
             transfer_id: transfer_id.to_string(),
             status,
-            source_tx_hash: response.get("source_tx_hash")
+            source_tx_hash: response
+                .get("source_tx_hash")
                 .and_then(|h| h.as_str())
                 .map(|s| s.to_string()),
-            dest_tx_hash: response.get("dest_tx_hash")
+            dest_tx_hash: response
+                .get("dest_tx_hash")
                 .and_then(|h| h.as_str())
                 .map(|s| s.to_string()),
-            amount_transferred: response.get("amount_received")
+            amount_transferred: response
+                .get("amount_received")
                 .and_then(|a| a.as_str())
                 .and_then(|s| Uint128::from_str(s).ok()),
-            error_message: response.get("error")
+            error_message: response
+                .get("error")
                 .and_then(|e| e.as_str())
                 .map(|s| s.to_string()),
-            initiated_at: response.get("initiated_at")
-                .and_then(|t| t.as_u64()),
-            completed_at: response.get("completed_at")
-                .and_then(|t| t.as_u64()),
+            initiated_at: response.get("initiated_at").and_then(|t| t.as_u64()),
+            completed_at: response.get("completed_at").and_then(|t| t.as_u64()),
         })
     }
 
     /// Parse supported chains from API response
     fn parse_supported_chains(&self, response: Value) -> Result<Vec<SupportedChain>, Error> {
-        let chains = response.get("chains")
+        let chains = response
+            .get("chains")
             .and_then(|c| c.as_array())
             .ok_or_else(|| Error::Skip("Invalid chains response format".to_string()))?;
 
@@ -517,26 +554,32 @@ impl SkipClient {
 
         for chain_data in chains {
             let chain = SupportedChain {
-                chain_id: chain_data.get("chain_id")
+                chain_id: chain_data
+                    .get("chain_id")
                     .and_then(|c| c.as_str())
                     .unwrap_or("")
                     .to_string(),
-                chain_name: chain_data.get("chain_name")
+                chain_name: chain_data
+                    .get("chain_name")
                     .and_then(|n| n.as_str())
                     .unwrap_or("")
                     .to_string(),
-                chain_type: chain_data.get("chain_type")
+                chain_type: chain_data
+                    .get("chain_type")
                     .and_then(|t| t.as_str())
                     .unwrap_or("cosmos")
                     .to_string(),
-                is_available: chain_data.get("is_enabled")
+                is_available: chain_data
+                    .get("is_enabled")
                     .and_then(|e| e.as_bool())
                     .unwrap_or(false),
-                supported_assets: chain_data.get("assets")
+                supported_assets: chain_data
+                    .get("assets")
                     .and_then(|a| a.as_array())
                     .map(|assets| self.parse_chain_assets(assets))
                     .unwrap_or_default(),
-                bridges: chain_data.get("bridges")
+                bridges: chain_data
+                    .get("bridges")
                     .and_then(|b| b.as_array())
                     .map(|bridges| self.parse_bridge_info(bridges))
                     .unwrap_or_default(),
@@ -549,49 +592,57 @@ impl SkipClient {
 
     /// Parse chain assets from response data
     fn parse_chain_assets(&self, assets: &[Value]) -> Vec<ChainAsset> {
-        assets.iter().filter_map(|asset| {
-            Some(ChainAsset {
-                denom: asset.get("denom")?.as_str()?.to_string(),
-                symbol: asset.get("symbol")?.as_str()?.to_string(),
-                decimals: asset.get("decimals")?.as_u64()? as u8,
-                is_native: asset.get("is_native")?.as_bool()?,
-                contract_address: asset.get("contract_address")
-                    .and_then(|c| c.as_str())
-                    .map(|s| s.to_string()),
+        assets
+            .iter()
+            .filter_map(|asset| {
+                Some(ChainAsset {
+                    denom: asset.get("denom")?.as_str()?.to_string(),
+                    symbol: asset.get("symbol")?.as_str()?.to_string(),
+                    decimals: asset.get("decimals")?.as_u64()? as u8,
+                    is_native: asset.get("is_native")?.as_bool()?,
+                    contract_address: asset
+                        .get("contract_address")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string()),
+                })
             })
-        }).collect()
+            .collect()
     }
 
     /// Parse bridge information from response data
     fn parse_bridge_info(&self, bridges: &[Value]) -> Vec<BridgeInfo> {
-        bridges.iter().filter_map(|bridge| {
-            Some(BridgeInfo {
-                target_chain: bridge.get("target_chain")?.as_str()?.to_string(),
-                bridge_protocol: bridge.get("protocol")?.as_str()?.to_string(),
-                is_active: bridge.get("is_active")?.as_bool()?,
-                estimated_time_seconds: bridge.get("estimated_time")?.as_u64()?,
-                fee_percentage: bridge.get("fee_percentage")
-                    .and_then(|f| f.as_str())
-                    .and_then(|s| Decimal::from_str(s).ok()),
-                min_amount: bridge.get("min_amount")
-                    .and_then(|a| a.as_str())
-                    .and_then(|s| Uint128::from_str(s).ok()),
-                max_amount: bridge.get("max_amount")
-                    .and_then(|a| a.as_str())
-                    .and_then(|s| Uint128::from_str(s).ok()),
+        bridges
+            .iter()
+            .filter_map(|bridge| {
+                Some(BridgeInfo {
+                    target_chain: bridge.get("target_chain")?.as_str()?.to_string(),
+                    bridge_protocol: bridge.get("protocol")?.as_str()?.to_string(),
+                    is_active: bridge.get("is_active")?.as_bool()?,
+                    estimated_time_seconds: bridge.get("estimated_time")?.as_u64()?,
+                    fee_percentage: bridge
+                        .get("fee_percentage")
+                        .and_then(|f| f.as_str())
+                        .and_then(|s| Decimal::from_str(s).ok()),
+                    min_amount: bridge
+                        .get("min_amount")
+                        .and_then(|a| a.as_str())
+                        .and_then(|s| Uint128::from_str(s).ok()),
+                    max_amount: bridge
+                        .get("max_amount")
+                        .and_then(|a| a.as_str())
+                        .and_then(|s| Uint128::from_str(s).ok()),
+                })
             })
-        }).collect()
+            .collect()
     }
 
     /// Verify a single asset
     async fn verify_single_asset(&self, asset: &CrossChainAsset) -> Result<VerifiedAsset, Error> {
         // Query Skip API for asset verification
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&format!("{}/v1/fungible/assets", self.skip_api_base_url))
-            .query(&[
-                ("chain_id", &asset.chain),
-                ("denom", &asset.denom),
-            ])
+            .query(&[("chain_id", &asset.chain), ("denom", &asset.denom)])
             .send()
             .await
             .map_err(|e| Error::Skip(format!("Failed to verify asset: {}", e)))?;
@@ -600,10 +651,13 @@ impl SkipClient {
             return Err(Error::Skip("Asset verification failed".to_string()));
         }
 
-        let asset_data: Value = response.json().await
+        let asset_data: Value = response
+            .json()
+            .await
             .map_err(|e| Error::Skip(format!("Failed to parse asset verification: {}", e)))?;
 
-        let is_verified = asset_data.get("assets")
+        let is_verified = asset_data
+            .get("assets")
             .and_then(|a| a.as_array())
             .map(|assets| !assets.is_empty())
             .unwrap_or(false);
@@ -643,7 +697,9 @@ impl SkipClient {
 
         // Validate chains are different (for cross-chain transfer)
         if request.source_asset.chain == request.target_asset.chain {
-            return Err(Error::Skip("Source and target chains must be different for cross-chain transfer".to_string()));
+            return Err(Error::Skip(
+                "Source and target chains must be different for cross-chain transfer".to_string(),
+            ));
         }
 
         Ok(())
@@ -652,13 +708,13 @@ impl SkipClient {
     /// Execute the internal transfer logic
     async fn execute_transfer_internal(
         &self,
-        request: &TransferRequest,
+        _request: &TransferRequest,
         transfer_id: &str,
     ) -> Result<String, Error> {
         // This would implement the actual transfer execution
         // For now, return a mock transaction hash
         let mock_tx_hash = format!("0x{}", hex::encode(&transfer_id.as_bytes()[..16]));
-        
+
         // In a real implementation, this would:
         // 1. Build the appropriate Skip protocol transaction
         // 2. Sign with the wallet
