@@ -67,4 +67,16 @@ pub enum Error {
     /// Timeout error - occurs when operations exceed their timeout limit
     #[error("Timeout error: {0}")]
     Timeout(String),
+
+    /// Not implemented error - occurs when a feature is not yet implemented
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
+
+    /// Wallet not set error - occurs when trying to execute a transaction without a wallet
+    #[error("Wallet not set - cannot execute transaction without a wallet")]
+    WalletNotSet,
+
+    /// Skip protocol error - occurs when Skip API or cross-chain operations fail
+    #[error("Skip protocol error: {0}")]
+    Skip(String),
 }

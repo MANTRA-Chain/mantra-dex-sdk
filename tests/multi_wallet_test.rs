@@ -1,7 +1,7 @@
 #[cfg(feature = "mcp")]
-use mantra_dex_sdk::mcp::sdk_adapter::McpSdkAdapter;
+use mantra_sdk::mcp::sdk_adapter::McpSdkAdapter;
 #[cfg(feature = "mcp")]
-use mantra_dex_sdk::wallet::MantraWallet;
+use mantra_sdk::wallet::MantraWallet;
 
 #[tokio::test]
 #[cfg(feature = "mcp")]

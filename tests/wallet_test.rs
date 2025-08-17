@@ -1,6 +1,6 @@
 mod utils;
 
-use mantra_dex_sdk::{Error, MantraWallet};
+use mantra_sdk::{Error, MantraWallet};
 use utils::test_utils::{create_test_client, create_test_wallet, load_test_config};
 
 #[tokio::test]

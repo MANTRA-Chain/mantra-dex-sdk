@@ -1,6 +1,6 @@
 mod utils;
 
-use mantra_dex_sdk::{client::PoolStatus, Error};
+use mantra_sdk::{protocols::dex::client::PoolStatus, Error};
 use utils::test_utils::{create_test_client, get_or_create_test_pool_id};
 
 /// Test pool status enum functionality

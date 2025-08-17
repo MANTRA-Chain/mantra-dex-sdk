@@ -4,15 +4,15 @@
 //! It provides a complete terminal-based interface for interacting with
 //! the MANTRA DEX on the Mantra Dukong Network.
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use clap::Parser;
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use mantra_dex_sdk::{
     client::MantraDexClient,
     config::MantraNetworkConfig,
@@ -24,14 +24,14 @@ use mantra_dex_sdk::{
     },
     wallet::MantraWallet,
 };
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use ratatui::{backend::CrosstermBackend, Terminal};
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use std::{fs, io::stdout, panic, path::PathBuf, time::Duration};
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use tokio::{sync::mpsc, time::interval};
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 #[derive(Parser)]
 #[command(name = "mantra-dex-tui")]
 #[command(about = "MANTRA DEX SDK - Terminal User Interface")]
@@ -62,7 +62,7 @@ struct Args {
     refresh_interval: u64,
 }
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 #[derive(serde::Deserialize)]
 struct WalletConfig {
     mnemonic: String,
@@ -70,7 +70,7 @@ struct WalletConfig {
     passphrase: Option<String>,
 }
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 async fn load_wallet_from_config(config_path: Option<PathBuf>) -> Result<MantraWallet, Error> {
     let config_path = config_path.unwrap_or_else(|| {
         dirs::home_dir()
@@ -103,7 +103,7 @@ async fn load_wallet_from_config(config_path: Option<PathBuf>) -> Result<MantraW
     MantraWallet::from_mnemonic(&wallet_config.mnemonic, derivation_path)
 }
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 async fn setup_client_and_wallet(args: &Args) -> Result<(MantraDexClient, ()), Error> {
     // Setup network configuration
     let mut config = match args.network.as_str() {
@@ -135,7 +135,7 @@ async fn setup_client_and_wallet(args: &Args) -> Result<(MantraDexClient, ()), E
     Ok((client, ()))
 }
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 async fn run_tui_app(args: Args) -> Result<(), Error> {
     // Setup logging if debug enabled
     if args.debug {
@@ -276,7 +276,7 @@ async fn run_tui_app(args: Args) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -290,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "tui"))]
+#[cfg(not(feature = "tui-dex"))]
 fn main() {
     eprintln!("TUI feature is not enabled. Please run with: cargo run --features tui");
     std::process::exit(1);

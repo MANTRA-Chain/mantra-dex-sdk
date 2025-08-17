@@ -1,6 +1,6 @@
 mod utils;
 
-use mantra_dex_sdk::config::{MantraNetworkConfig, NetworkConstants};
+use mantra_sdk::config::{MantraNetworkConfig, NetworkConstants};
 use utils::test_utils::{create_test_network_config, load_contract_addresses, load_test_config};
 
 #[test]

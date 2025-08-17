@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 mod utils;
-use mantra_dex_sdk::Error;
+use mantra_sdk::Error;
 use utils::test_utils::*;
 
 /// Comprehensive MCP integration test that calls all available tools in proper order
@@ -33,7 +33,7 @@ async fn test_mcp_tools_comprehensive_integration() {
 }
 
 /// Test network and connectivity tools
-async fn test_network_connectivity_tools(client: &mantra_dex_sdk::client::MantraDexClient) {
+async fn test_network_connectivity_tools(client: &mantra_sdk::MantraDexClient) {
     println!("Testing network and connectivity tools...");
 
     // Test get_last_block_height (network connectivity check)
@@ -73,7 +73,7 @@ async fn test_network_connectivity_tools(client: &mantra_dex_sdk::client::Mantra
 }
 
 /// Test wallet and balance tools
-async fn test_wallet_balance_tools(client: &mantra_dex_sdk::client::MantraDexClient) {
+async fn test_wallet_balance_tools(client: &mantra_sdk::MantraDexClient) {
     println!("Testing wallet and balance tools...");
 
     // Test get_balances
@@ -100,7 +100,7 @@ async fn test_wallet_balance_tools(client: &mantra_dex_sdk::client::MantraDexCli
 }
 
 /// Test pool query tools
-async fn test_pool_query_tools(client: &mantra_dex_sdk::client::MantraDexClient) {
+async fn test_pool_query_tools(client: &mantra_sdk::MantraDexClient) {
     println!("Testing pool query tools...");
 
     // Test get_pools
@@ -143,7 +143,7 @@ async fn test_pool_query_tools(client: &mantra_dex_sdk::client::MantraDexClient)
 }
 
 /// Test DEX core trading tools with proper ordering
-async fn test_dex_core_trading_tools(client: &mantra_dex_sdk::client::MantraDexClient) {
+async fn test_dex_core_trading_tools(client: &mantra_sdk::MantraDexClient) {
     println!("Testing DEX core trading tools with proper ordering...");
 
     let pool_id = "integration_test_pool";
@@ -304,7 +304,7 @@ async fn test_dex_core_trading_tools(client: &mantra_dex_sdk::client::MantraDexC
 }
 
 /// Test LP token management tools (using available methods)
-async fn test_lp_token_management_tools(client: &mantra_dex_sdk::client::MantraDexClient) {
+async fn test_lp_token_management_tools(client: &mantra_sdk::MantraDexClient) {
     println!("Testing LP token management tools...");
 
     let test_address = "mantra1cc0jfcd3rv3d36g6m575mdk8p2nmdjgnaf7ngq".to_string();
@@ -507,7 +507,7 @@ async fn test_mcp_tools_concurrent_access() {
 #[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_adapter_slippage_validation_integration() {
-    use mantra_dex_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
+    use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
     
     println!("Testing MCP adapter slippage validation integration...");
     
@@ -597,7 +597,7 @@ async fn test_mcp_adapter_slippage_validation_integration() {
 #[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_adapter_slippage_edge_cases_integration() {
-    use mantra_dex_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
+    use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
     
     println!("Testing MCP adapter slippage edge cases integration...");
     
@@ -677,7 +677,7 @@ async fn test_mcp_adapter_slippage_edge_cases_integration() {
 #[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_adapter_realistic_slippage_scenarios() {
-    use mantra_dex_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
+    use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
     
     println!("Testing realistic slippage scenarios...");
     

@@ -1,6 +1,6 @@
 mod utils;
 
-use mantra_dex_sdk::{MantraDexClient, MantraWallet};
+use mantra_sdk::{MantraDexClient, MantraWallet};
 use utils::test_utils::{
     create_test_client, create_test_network_config, get_or_create_test_pool_id, load_test_config,
 };

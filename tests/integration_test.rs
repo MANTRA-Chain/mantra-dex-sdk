@@ -1,5 +1,5 @@
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use mantra_dex_sdk::Error;
+use mantra_sdk::Error;
 use std::str::FromStr;
 
 mod utils;

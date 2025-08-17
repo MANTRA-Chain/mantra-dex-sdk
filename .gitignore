@@ -9,6 +9,7 @@ artifacts/
 .vscode/
 .idea/
 *.iml
+.claude
 
 # macOS
 .DS_Store

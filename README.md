@@ -1,15 +1,17 @@
-# MANTRA Dex SDK
+# MANTRA SDK
 
-A comprehensive Rust SDK for interacting with the MANTRA blockchain DEX, featuring wallet management, trading operations, liquidity management, and optional MCP server and TUI interfaces.
+A comprehensive Rust SDK for interacting with the MANTRA blockchain ecosystem, supporting multiple protocols including DEX, ClaimDrop, Skip, and more. Features wallet management, protocol-specific operations, and optional MCP server and TUI interfaces.
 
 ## Features
 
+- **Multi-Protocol Support**: Modular architecture supporting DEX, ClaimDrop, Skip, and future protocols
 - **Complete DEX Operations**: Swap execution, liquidity provision/withdrawal, pool management
+- **ClaimDrop Management**: Campaign creation, reward claims, allocation management
+- **Cross-Chain Operations**: Skip protocol integration for cross-chain swaps and routing
 - **HD Wallet Management**: BIP32/BIP39 compatible wallet generation and import
 - **Multi-Network Support**: Configurable testnet/mainnet connectivity
-- **Real-time Analytics**: Trading reports, performance analysis, impermanent loss calculations
-- **MCP Server Integration**: Model Context Protocol server for AI agent interaction
-- **Terminal UI**: Interactive command-line interface for manual operations
+- **MCP Server Integration**: Model Context Protocol server with protocol-prefixed tools for AI agents
+- **Terminal UI**: Interactive command-line interface for DEX operations
 
 ## Architecture
 
@@ -17,10 +19,21 @@ A comprehensive Rust SDK for interacting with the MANTRA blockchain DEX, featuri
 
 ```
 src/
-├── client.rs          # Main DEX client (1183 lines) - all blockchain operations
+├── client.rs          # Generic MANTRA client with protocol adapters
 ├── config.rs          # Network configuration and constants management  
-├── wallet.rs          # HD wallet operations and key management
+├── wallet/            # HD wallet operations and key management
 ├── error.rs           # Centralized error types and handling
+├── protocols/         # Protocol implementations
+│   ├── dex/           # DEX protocol (pools, swaps, liquidity)
+│   │   ├── client.rs  # DEX client implementation
+│   │   └── types.rs   # DEX-specific types
+│   ├── claimdrop/     # ClaimDrop protocol
+│   │   ├── client.rs  # Campaign operations
+│   │   ├── factory.rs # Factory operations
+│   │   └── types.rs   # ClaimDrop types
+│   └── skip/          # Skip protocol for cross-chain
+│       ├── client.rs  # Skip adapter client
+│       └── types.rs   # Skip-specific types
 └── lib.rs             # Module exports and feature-gated re-exports
 ```
 
@@ -34,9 +47,9 @@ src/mcp/
 └── client_wrapper.rs  # MCP client wrapper functionality
 ```
 
-#### Terminal UI (`--features tui`)
+#### DEX Terminal UI (`--features tui-dex`)
 ```
-src/tui/
+src/tui_dex/
 ├── app.rs             # Central application state management (2680 lines)
 ├── events.rs          # Event handling and async operations (929 lines)
 ├── screens/           # Individual screen implementations
@@ -56,22 +69,30 @@ cargo build --release
 ### Basic SDK Usage
 
 ```rust
-use mantra_dex_sdk::{Client, Config};
+use mantra_sdk::{MantraClient, MantraClientBuilder, MantraNetworkConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize client
-    let config = Config::testnet();
-    let client = Client::new(config).await?;
+    // Initialize client with builder pattern
+    let client = MantraClientBuilder::new()
+        .with_network(MantraNetworkConfig::testnet())
+        .build()
+        .await?;
     
-    // Get pool information
-    let pools = client.get_pools(None, None).await?;
-    println!("Available pools: {}", pools.len());
+    // List available protocols
+    let protocols = client.list_protocols();
+    println!("Available protocols: {:?}", protocols);
     
-    // Check wallet balance
-    if let Some(balance) = client.get_balances(None, false).await? {
-        println!("Wallet balance: {:?}", balance);
-    }
+    // Use DEX protocol
+    let dex_client = client.dex()?;
+    let pools = dex_client.get_pools(None, None).await?;
+    println!("Available DEX pools: {}", pools.len());
+    
+    // Use ClaimDrop protocol
+    let factory_address = "mantra1...";
+    let claimdrop_factory = client.claimdrop_factory(factory_address.to_string());
+    let campaigns = claimdrop_factory.query_campaigns(None, None).await?;
+    println!("ClaimDrop campaigns: {:?}", campaigns);
     
     Ok(())
 }
@@ -92,25 +113,80 @@ cargo build --features mcp                    # Build MCP server
 cargo run --bin mcp-server --features mcp     # Run MCP server
 ```
 
-### Terminal UI
+The MCP server provides protocol-prefixed tools for AI agents:
+
+**Network Tools:**
+- `network_get_contract_addresses` - Get contract addresses for the current network
+- `network_validate_connectivity` - Validate network connectivity
+
+**Wallet Tools:**
+- `wallet_get_balances` - Get wallet balances
+- `wallet_list` - List available wallets
+- `wallet_switch` - Switch active wallet
+- `wallet_get_active` - Get active wallet info
+- `wallet_add_from_mnemonic` - Add wallet from mnemonic
+- `wallet_remove` - Remove a wallet
+
+**DEX Tools:**
+- `dex_get_pools` - Query available pools
+- `dex_execute_swap` - Execute a token swap
+- `dex_provide_liquidity` - Provide liquidity to a pool
+- `dex_withdraw_liquidity` - Withdraw liquidity from a pool
+- `dex_create_pool` - Create a new pool
+- `dex_get_lp_token_balance` - Get LP token balance
+- `dex_get_all_lp_token_balances` - Get all LP token balances
+- `dex_estimate_lp_withdrawal_amounts` - Estimate withdrawal amounts
+
+**ClaimDrop Tools:**
+- `claimdrop_create_campaign` - Create a new claimdrop campaign
+- `claimdrop_claim` - Claim rewards from a campaign
+- `claimdrop_query_rewards` - Query user rewards
+- `claimdrop_query_campaigns` - Query all campaigns
+- `claimdrop_add_allocations` - Add allocations to a campaign
+
+**Skip Protocol Tools:**
+- `skip_route_assets` - Find optimal cross-chain route
+- `skip_simulate_swap` - Simulate cross-chain swap
+
+### DEX Terminal UI
 ```bash
-cargo run --bin mantra-dex-tui --features tui  # Primary TUI entry point
-cargo run --bin tui --features tui             # Alternative TUI entry point
+cargo run --bin mantra-dex-tui --features tui-dex  # Primary DEX TUI entry point
+cargo run --bin tui --features tui-dex             # Alternative DEX TUI entry point
 ```
 
 ## Core Modules
 
-### Client (`src/client.rs`)
-The main interface for all DEX operations:
+### Main Client (`src/client.rs`)
+The generic MANTRA client providing access to all protocols:
+- **Protocol Management**: Dynamic protocol loading and configuration
+- **Unified Interface**: Access all protocols through a single client
+- **Connection Pooling**: Efficient RPC connection management
+
+### DEX Protocol (`src/protocols/dex/`)
+Complete DEX functionality:
 - **Pool Operations**: Query pools, create pools (admin), manage pool features
 - **Trading**: Execute swaps, simulate trades, monitor transactions  
 - **Liquidity Management**: Provide/withdraw liquidity, manage LP tokens
 - **Wallet Integration**: Balance queries, transaction signing
 - **Analytics**: Generate trading reports, calculate impermanent loss
 
+### ClaimDrop Protocol (`src/protocols/claimdrop/`)
+Campaign-based reward distribution:
+- **Campaign Management**: Create campaigns through factory, close campaigns
+- **Reward Operations**: Claim rewards, query allocations
+- **Admin Functions**: Add/remove allocations, manage blacklists
+- **Aggregation**: Query rewards across all campaigns
+
+### Skip Protocol (`src/protocols/skip/`)
+Cross-chain operations:
+- **Route Discovery**: Find optimal paths for cross-chain transfers
+- **Swap Simulation**: Simulate cross-chain swaps before execution
+- **IBC Integration**: Handle Inter-Blockchain Communication
+
 ```rust
-// Example: Execute a swap
-let swap_result = client.execute_swap(
+// Example: Execute a DEX swap
+let dex_client = client.dex()?;
+let swap_result = dex_client.execute_swap(
     "1",                    // pool_id
     ("uom", "1000000"),     // offer_asset (denom, amount)
     "uusdy",                // ask_asset_denom

@@ -893,7 +893,7 @@ async fn test_protocol_version_enforcement() {
 mod integration_tests {
     use super::*;
     #[cfg(feature = "mcp")]
-    use mantra_dex_sdk::mcp::server::McpServerError;
+    use mantra_sdk::mcp::server::McpServerError;
     
     #[tokio::test]
     #[cfg(feature = "mcp")]

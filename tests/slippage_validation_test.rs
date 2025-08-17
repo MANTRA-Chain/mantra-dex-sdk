@@ -1,7 +1,7 @@
 mod utils;
 
 #[cfg(feature = "mcp")]
-use mantra_dex_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
+use mantra_sdk::mcp::sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
 
 /// Test slippage validation in execute_swap_simple function
 #[cfg(feature = "mcp")]
