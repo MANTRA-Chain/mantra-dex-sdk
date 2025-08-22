@@ -4,129 +4,161 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is the Mantra DEX SDK - a comprehensive Rust SDK for interacting with the Mantra blockchain DEX. The project provides both a library SDK and includes MCP (Model Context Protocol) server and TUI (Terminal User Interface) features through optional feature flags.
+MANTRA SDK - A modular Rust SDK for the MANTRA blockchain ecosystem supporting multiple protocols (DEX, ClaimDrop, Skip) with optional MCP server and TUI interfaces.
 
-## Build Commands
+## Common Development Commands
 
-### Core SDK (Default)
+### Build and Test
 ```bash
-cargo build              # Build SDK library only
-cargo test               # Run SDK tests
+# Core SDK
+cargo build                                # Build SDK library only
+cargo test                                 # Run all tests
+cargo test --test integration_test        # Run integration tests only
+cargo test wallet_operations              # Test specific module
+
+# With features
+cargo build --features mcp                # Build with MCP server
+cargo build --features tui-dex            # Build with DEX TUI
+cargo test --features mcp                 # Test MCP functionality
+
+# Makefile commands
+make build                                 # Build with all features
+make test                                  # Run all tests
+make lint                                  # Run clippy linter
+make format                                # Format code
+make quick-test                           # format-check + lint + test
 ```
 
-### MCP Server Development
+### Run Components
 ```bash
-# Compilation validation (preferred for development)
-cargo check --features mcp
-cargo build --features mcp
-cargo test --features mcp
+# MCP Server (Model Context Protocol)
+cargo check --features mcp                # Check compilation (preferred)
+cargo run --bin mcp-server --features mcp # Run MCP server
 
-# Running MCP server (use with caution - can hang)
-cargo run --bin mcp-server --features mcp
+# TUI (Terminal User Interface)  
+cargo run --bin mantra-dex-tui --features tui-dex  # Primary TUI
+cargo run --bin tui --features tui-dex             # Alternative TUI
+make dev-tui                                        # Development mode
 ```
 
-### TUI Development
+### Development Workflow
 ```bash
-# Primary TUI entry point
-cargo run --bin mantra-dex-tui --features tui
-
-# Alternative TUI entry point  
-cargo run --bin tui --features tui
+make setup                                 # Setup dev environment
+make dev                                   # Start dev environment with monitoring
+make dev-watch                            # Auto-reload on changes
+make docker-build                         # Build Docker images
+make k8s-deploy                          # Deploy to Kubernetes
 ```
-
-### Testing Strategy
-- **SDK Core**: Full test coverage for all business logic
-- **TUI Components**: Manual testing only - no automated tests
-- **MCP Server**: Integration tests for MCP protocol compliance
 
 ## Architecture
 
-### Core SDK Structure
-- **`src/client.rs`** (1183 lines): Main DEX client with all blockchain operations
-- **`src/config.rs`**: Network configuration and constants management
-- **`src/wallet.rs`**: HD wallet operations and key management
-- **`src/error.rs`**: Centralized error types and handling
-- **`src/lib.rs`**: Module exports and feature-gated re-exports
+### Modular Protocol System (`src/`)
+```
+src/
+├── client.rs                   # Generic MantraClient with protocol adapters
+├── config/                     # Configuration management
+│   ├── contracts.rs           # Contract addresses by network
+│   ├── env.rs                 # Environment configuration
+│   └── protocols.rs           # Protocol-specific configs
+├── protocols/                  # Protocol implementations
+│   ├── dex/                   # DEX protocol
+│   │   ├── client.rs          # MantraDexClient implementation
+│   │   └── types.rs           # DEX-specific types
+│   ├── claimdrop/             # ClaimDrop protocol  
+│   │   ├── client.rs          # Campaign operations
+│   │   ├── factory.rs         # Factory pattern implementation
+│   │   └── types.rs           # ClaimDrop types
+│   └── skip/                  # Skip protocol (cross-chain)
+│       ├── client.rs          # SkipAdapter implementation
+│       └── types.rs           # Skip-specific types
+├── wallet/                     # Wallet management
+│   ├── mod.rs                 # HD wallet operations
+│   └── storage.rs             # Encrypted wallet storage
+└── mcp/ (feature-gated)       # MCP server
+    ├── server.rs              # JSON-RPC 2.0 server
+    └── sdk_adapter.rs         # Protocol adapter layer
+```
 
-### Feature-Gated Modules
-- **`src/mcp/`**: MCP server implementation (requires `mcp` feature)
-- **`src/tui/`**: Terminal User Interface (requires `tui` feature)
+### Key Architecture Patterns
 
-### MCP Server Components
-- **`src/mcp/server.rs`**: Core MCP server with JSON-RPC 2.0 support
-- **`src/mcp/sdk_adapter.rs`**: Adapter layer between MCP and SDK
-- **`src/mcp/client_wrapper.rs`**: MCP client wrapper functionality
+**Protocol Registry Pattern**: All protocols implement the `Protocol` trait and register with `ProtocolRegistry` in `MantraClient`. Access protocols via:
+```rust
+client.dex()?           // Get DEX protocol
+client.claimdrop_factory(address)  // Get ClaimDrop factory
+client.skip()?          // Get Skip protocol  
+```
 
-### TUI Architecture
-- **`src/tui/app.rs`** (2680 lines): Central application state management
-- **`src/tui/events.rs`** (929 lines): Event handling and async operations
-- **`src/tui/screens/`**: Individual screen implementations
-- **`src/tui/components/`**: Reusable UI components
+**Configuration System**: Unified `ConfigurationManager` loads from:
+- `config/network.toml` - Network endpoints
+- `config/contracts.toml` - Contract addresses
+- Environment variables override TOML configs
 
-## Development Workflow
+**MCP Tool Naming**: All MCP tools are prefixed by protocol:
+- `network_*` - Network operations
+- `wallet_*` - Wallet management  
+- `dex_*` - DEX operations
+- `claimdrop_*` - ClaimDrop operations
+- `skip_*` - Cross-chain operations
 
-### Adding New SDK Features
-1. Implement core functionality in `src/client.rs`
-2. Add error types to `src/error.rs`
-3. Update configuration in `src/config.rs` if needed
-4. Add comprehensive tests for business logic
-5. Update `src/lib.rs` exports
+## Protocol-Specific Development
 
-### MCP Server Development
-- Use `cargo check --features mcp` for compilation validation
-- Never use `cargo run --bin mcp-server` for compilation checks
-- MCP server provides 28 tools and 3 resources for DEX operations
-- Full JSON-RPC 2.0 compliance with async operations
+### Adding New Protocol
+1. Create `src/protocols/<name>/` directory
+2. Implement `Protocol` trait in `client.rs`
+3. Define types in `types.rs`
+4. Register in `ProtocolRegistry` (src/client.rs:80-100)
+5. Add contract addresses to `config/contracts.toml`
+6. Update MCP adapter if needed (src/mcp/sdk_adapter.rs)
 
-### TUI Development
-- Focus on state management in `src/tui/app.rs`
-- Implement event handling in `src/tui/events.rs`
-- Use unified focus management across all screens
-- Manual testing only - no automated TUI tests
+### DEX Protocol (`src/protocols/dex/`)
+- Pool management, swaps, liquidity operations
+- Uses `mantra-dex-std` for contract types
+- Slippage protection built into all swap operations
 
-## Key Dependencies
+### ClaimDrop Protocol (`src/protocols/claimdrop/`)
+- Campaign creation through factory pattern
+- Reward claiming and allocation management
+- Uses `mantra-claimdrop-std` for contract types
 
-### Core SDK
-- `mantra-dex-std`: DEX standard library
-- `cosmrs`: Cosmos SDK integration with RPC, BIP32, CosmWasm
-- `tokio`: Async runtime
+### Skip Protocol (`src/protocols/skip/`)
+- Cross-chain routing and transfers
+- IBC packet handling
+- External Skip API integration
 
-### MCP Server (Feature-Gated)
-- `rust-mcp-sdk`: MCP server implementation
-- `rust-mcp-schema`: MCP schema definitions
-- `axum`, `hyper`: HTTP server support
-
-### TUI (Feature-Gated)
-- `ratatui`: Terminal UI framework
-- `crossterm`: Cross-platform terminal control
-- `tui-input`: Text input handling
-
-## Network Configuration
-
-The SDK supports multiple networks through configuration:
-- Uses `chain_id` for network identification (migrated from `network_id`)
-- Supports testnet/mainnet with configurable RPC endpoints
-- Proper bech32 address validation for Cosmos addresses
-
-## Testing Guidelines
+## Testing Strategy
 
 ### What to Test
-- All SDK business logic and client operations
-- Wallet functionality and key management
-- Network configuration and validation
-- Error handling and edge cases
+- Protocol client implementations
+- Wallet operations and key derivation
+- Configuration loading and validation
 - MCP protocol compliance
+- Integration tests in `tests/integration/`
 
-### What NOT to Test
-- TUI components, screens, or navigation
-- UI rendering or visual components
-- Event handling in TUI context
-- Manual testing preferred for TUI functionality
+### What NOT to Test  
+- TUI components (manual testing only)
+- UI rendering or visual elements
+- Generated bindings from `*-std` crates
 
-## Security Considerations
+### Running Specific Tests
+```bash
+cargo test client_test                    # Test client operations
+cargo test --test integration_test       # Integration tests
+cargo test --features mcp mcp_           # MCP-specific tests
+```
 
-- Private keys never exposed in responses
-- Wallet encryption when saved to disk
-- BIP32/BIP39 key derivation standards
-- Proper transaction parameter validation
-- Slippage protection for trading operations
+## Configuration Files
+
+- `config/network.toml` - RPC/LCD/gRPC endpoints
+- `config/contracts.toml` - Contract addresses per network
+- `config/test.toml` - Test configuration
+- `Makefile` - Development automation
+- `docker-compose.yml` - Local development stack
+
+## Feature Flags
+
+- `default`: No features, core SDK only
+- `mcp`: Enable MCP server with all dependencies
+- `tui-dex`: Enable DEX Terminal UI
+- `performance`: Performance monitoring (in Makefile)
+- `security`: Security features (in Makefile)
+- `resilience`: Resilience features (in Makefile)
