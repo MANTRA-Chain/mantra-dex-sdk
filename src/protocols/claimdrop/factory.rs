@@ -50,6 +50,7 @@ pub struct FactoryUserRewardsResponse {
 #[derive(serde::Deserialize)]
 pub struct FactoryCampaignRewards {
     pub campaign_address: String,
+    pub campaign_type: String,
     pub claimed: Vec<cosmwasm_std::Coin>,
     pub pending: Vec<cosmwasm_std::Coin>,
     pub available_to_claim: Vec<cosmwasm_std::Coin>,
@@ -211,6 +212,7 @@ impl ClaimdropFactoryClient {
             .into_iter()
             .map(|r| CampaignReward {
                 campaign_address: r.campaign_address,
+                campaign_type: Some(r.campaign_type),
                 claimed: r.claimed,
                 pending: r.pending,
                 available_to_claim: r.available_to_claim,

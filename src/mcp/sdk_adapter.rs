@@ -2977,7 +2977,6 @@ impl McpSdkAdapter {
             name: name.to_string(),
             description: description.to_string(),
             ty: campaign_type.to_string(),
-            reward_denom: reward_denom.to_string(),
             total_reward: cosmwasm_std::Coin {
                 denom: reward_denom.to_string(),
                 amount: total_reward,

@@ -35,7 +35,7 @@ make quick-test                           # format-check + lint + test
 cargo check --features mcp                # Check compilation (preferred)
 cargo run --bin mcp-server --features mcp # Run MCP server
 
-# TUI (Terminal User Interface)  
+# TUI (Terminal User Interface)
 cargo run --bin mantra-dex-tui --features tui-dex  # Primary TUI
 cargo run --bin tui --features tui-dex             # Alternative TUI
 make dev-tui                                        # Development mode
@@ -48,6 +48,26 @@ make dev                                   # Start dev environment with monitori
 make dev-watch                            # Auto-reload on changes
 make docker-build                         # Build Docker images
 make k8s-deploy                          # Deploy to Kubernetes
+```
+
+## Code Search and Analysis
+
+For semantic code search and analysis, refer to **~/workspace/AST_GREP_INSTRUCTIONS.md** which provides guidance on using AST-grep for:
+- Precise semantic code search using AST patterns
+- Finding specific code structures (functions, hooks, classes)
+- Language-aware pattern matching across the codebase
+- Structural code analysis without regex complexity
+
+Example usage for this repository:
+```bash
+# Find all Protocol trait implementations
+ast-grep run -p 'impl Protocol for $TYPE { $$$BODY }' --lang rust
+
+# Find all DEX client method calls
+ast-grep run -p 'client.dex()?' --lang rust
+
+# Find wallet operations
+ast-grep run -p '$CLIENT.wallet.$METHOD($$$ARGS)' --lang rust
 ```
 
 ## Architecture
@@ -64,7 +84,7 @@ src/
 │   ├── dex/                   # DEX protocol
 │   │   ├── client.rs          # MantraDexClient implementation
 │   │   └── types.rs           # DEX-specific types
-│   ├── claimdrop/             # ClaimDrop protocol  
+│   ├── claimdrop/             # ClaimDrop protocol
 │   │   ├── client.rs          # Campaign operations
 │   │   ├── factory.rs         # Factory pattern implementation
 │   │   └── types.rs           # ClaimDrop types
@@ -85,7 +105,7 @@ src/
 ```rust
 client.dex()?           // Get DEX protocol
 client.claimdrop_factory(address)  // Get ClaimDrop factory
-client.skip()?          // Get Skip protocol  
+client.skip()?          // Get Skip protocol
 ```
 
 **Configuration System**: Unified `ConfigurationManager` loads from:
@@ -95,7 +115,7 @@ client.skip()?          // Get Skip protocol
 
 **MCP Tool Naming**: All MCP tools are prefixed by protocol:
 - `network_*` - Network operations
-- `wallet_*` - Wallet management  
+- `wallet_*` - Wallet management
 - `dex_*` - DEX operations
 - `claimdrop_*` - ClaimDrop operations
 - `skip_*` - Cross-chain operations
@@ -134,7 +154,7 @@ client.skip()?          // Get Skip protocol
 - MCP protocol compliance
 - Integration tests in `tests/integration/`
 
-### What NOT to Test  
+### What NOT to Test
 - TUI components (manual testing only)
 - UI rendering or visual elements
 - Generated bindings from `*-std` crates

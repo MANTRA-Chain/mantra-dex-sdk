@@ -4105,6 +4105,7 @@ pub async fn create_stdio_server(config: McpServerConfig) -> McpResult<MantraDex
 /// JSON-RPC request structure for HTTP transport
 #[derive(Debug, Deserialize)]
 struct HttpJsonRpcRequest {
+    #[allow(dead_code)]
     jsonrpc: String,
     method: String,
     params: Option<Value>,

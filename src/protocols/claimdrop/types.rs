@@ -2,18 +2,8 @@
 use cosmwasm_std::{Coin, Uint128};
 use serde::{Deserialize, Serialize};
 
-/// Campaign parameters for creating a new claimdrop campaign
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CampaignParams {
-    pub owner: String,
-    pub start_time: u64,
-    pub end_time: u64,
-    pub reward_denom: String,
-    pub reward_per_allocation: Uint128,
-    pub allocations: Vec<Allocation>,
-    pub whitelist: Option<String>,
-    pub blacklist: Option<String>,
-}
+// Re-export types from mantra-claimdrop-std for convenience
+pub use mantra_claimdrop_std::msg::{CampaignParams, DistributionType};
 
 /// User allocation in a campaign
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,13 +17,16 @@ pub struct Allocation {
 pub struct CampaignInfo {
     pub address: String,
     pub owner: String,
+    pub name: String,
+    pub description: String,
+    pub campaign_type: String,
     pub start_time: u64,
     pub end_time: u64,
-    pub reward_denom: String,
-    pub reward_per_allocation: Uint128,
-    pub total_allocated: Uint128,
-    pub total_claimed: Uint128,
+    pub total_reward: Coin,
+    pub claimed: Coin,
+    pub distribution_type: Vec<DistributionType>,
     pub is_active: bool,
+    pub closed_at: Option<u64>,
 }
 
 /// User rewards information
@@ -49,6 +42,7 @@ pub struct UserRewards {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CampaignReward {
     pub campaign_address: String,
+    pub campaign_type: Option<String>,
     pub claimed: Vec<Coin>,
     pub pending: Vec<Coin>,
     pub available_to_claim: Vec<Coin>,
@@ -123,4 +117,32 @@ pub struct CampaignStats {
     pub total_allocated: Uint128,
     pub total_claimed: Uint128,
     pub unique_participants: u32,
+}
+
+/// Authorized wallet management action
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorizedWalletAction {
+    Add { addresses: Vec<String> },
+    Remove { addresses: Vec<String> },
+}
+
+/// Response for authorized status check
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizedResponse {
+    pub is_authorized: bool,
+}
+
+/// Response for authorized wallets query
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizedWalletsResponse {
+    pub wallets: Vec<String>,
+}
+
+/// Sweep parameters for recovering tokens
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SweepParams {
+    pub campaign_address: String,
+    pub denom: String,
+    pub amount: Option<Uint128>,
 }

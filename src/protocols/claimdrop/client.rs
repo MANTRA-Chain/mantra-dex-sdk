@@ -112,14 +112,17 @@ impl ClaimdropClient {
         // Convert CampaignResponse to our CampaignInfo type
         Ok(CampaignInfo {
             address: self.contract_address.clone(),
-            owner: "".to_string(), // Would need to be queried separately or included in response
+            owner: "".to_string(), // Would need to be queried separately via ownership query
+            name: response.name,
+            description: response.description,
+            campaign_type: response.ty,
             start_time: response.start_time,
             end_time: response.end_time,
-            reward_denom: response.reward_denom,
-            reward_per_allocation: response.total_reward.amount,
-            total_allocated: response.total_reward.amount,
-            total_claimed: response.claimed.amount,
+            total_reward: response.total_reward,
+            claimed: response.claimed,
+            distribution_type: response.distribution_type,
             is_active: response.closed.is_none(),
+            closed_at: response.closed,
         })
     }
 
@@ -292,5 +295,46 @@ impl ClaimdropClient {
             action: CampaignAction::CloseCampaign {},
         };
         self.execute(&msg, vec![], fee).await
+    }
+
+    /// Sweep non-reward tokens from the campaign (owner only)
+    pub async fn sweep(
+        &self,
+        denom: &str,
+        amount: Option<Uint128>,
+        fee: Fee,
+    ) -> Result<ClaimdropOperationResult, Error> {
+        let msg = ExecuteMsg::Sweep {
+            denom: denom.to_string(),
+            amount,
+        };
+        self.execute(&msg, vec![], fee).await
+    }
+
+    /// Manage authorized wallets (owner only)
+    pub async fn manage_authorized_wallets(
+        &self,
+        addresses: Vec<String>,
+        authorized: bool,
+        fee: Fee,
+    ) -> Result<ClaimdropOperationResult, Error> {
+        let msg = ExecuteMsg::ManageAuthorizedWallets {
+            addresses,
+            authorized,
+        };
+        self.execute(&msg, vec![], fee).await
+    }
+
+    /// Query authorized wallets
+    pub async fn query_authorized_wallets(
+        &self,
+        start_after: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<super::types::AuthorizedWalletsResponse, Error> {
+        let query_msg = QueryMsg::AuthorizedWallets {
+            start_after: start_after.map(|s| s.to_string()),
+            limit,
+        };
+        self.query(&query_msg).await
     }
 }
