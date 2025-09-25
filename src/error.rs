@@ -79,4 +79,8 @@ pub enum Error {
     /// Skip protocol error - occurs when Skip API or cross-chain operations fail
     #[error("Skip protocol error: {0}")]
     Skip(String),
+
+    /// EVM protocol error - occurs when EVM blockchain operations fail
+    #[error("EVM error: {0}")]
+    Evm(String),
 }

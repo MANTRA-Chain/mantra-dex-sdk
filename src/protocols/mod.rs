@@ -2,6 +2,8 @@
 /// Each protocol represents a different contract or feature set on the MANTRA blockchain
 pub mod claimdrop;
 pub mod dex;
+#[cfg(feature = "evm")]
+pub mod evm;
 pub mod skip;
 
 use crate::error::Error;

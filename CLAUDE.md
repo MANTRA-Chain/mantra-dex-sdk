@@ -24,9 +24,11 @@ cargo test --features mcp                 # Test MCP functionality
 # Makefile commands
 make build                                 # Build with all features
 make test                                  # Run all tests
+make test-unit                            # Run unit tests only
 make lint                                  # Run clippy linter
 make format                                # Format code
 make quick-test                           # format-check + lint + test
+make clean                                 # Clean build artifacts
 ```
 
 ### Run Components
@@ -164,6 +166,9 @@ client.skip()?          // Get Skip protocol
 cargo test client_test                    # Test client operations
 cargo test --test integration_test       # Integration tests
 cargo test --features mcp mcp_           # MCP-specific tests
+cargo test --test migration_validation_test  # Migration validation
+cargo test --test fee_validation_test    # Fee validation tests
+cargo test --test slippage_validation_test  # Slippage tests
 ```
 
 ## Configuration Files
@@ -171,8 +176,10 @@ cargo test --features mcp mcp_           # MCP-specific tests
 - `config/network.toml` - RPC/LCD/gRPC endpoints
 - `config/contracts.toml` - Contract addresses per network
 - `config/test.toml` - Test configuration
-- `Makefile` - Development automation
+- `config/mcp.toml` - MCP server configuration
+- `Makefile` - Development automation (40+ targets)
 - `docker-compose.yml` - Local development stack
+- `k8s/` - Kubernetes deployment configurations
 
 ## Feature Flags
 

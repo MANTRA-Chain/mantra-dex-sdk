@@ -34,7 +34,18 @@ mcp = [
     "hyper-util",
     "tower",
     "num_cpus",
+    "evm",
 ]
+evm = [
+    "alloy-primitives",
+    "alloy-provider",
+    "alloy-transport-http",
+     "alloy-json-abi",
+     "alloy-sol-types",
+     "alloy-rpc-types-eth",
+     "tiny-keccak",
+     "k256",
+ ]
 
 [dependencies]
 mantra-dex-std = "3.0.0"
@@ -100,6 +111,16 @@ hyper = { version = "1.6.0", optional = true }
 hyper-util = { version = "0.1.10", features = ["tokio"], optional = true }
 tower = { version = "0.5.1", optional = true }
 num_cpus = { version = "1.16", optional = true }
+
+# EVM dependencies - optional via "evm" feature
+alloy-primitives = { version = "0.8", optional = true }
+alloy-provider = { version = "0.4", optional = true }
+alloy-transport-http = { version = "0.4", optional = true }
+alloy-json-abi = { version = "0.8", optional = true }
+alloy-sol-types = { version = "0.8", optional = true }
+alloy-rpc-types-eth = { version = "0.4", optional = true }
+tiny-keccak = { version = "2.0", features = ["keccak"], optional = true }
+k256 = { version = "0.13", features = ["ecdsa"], optional = true }
 
 
 [dev-dependencies]

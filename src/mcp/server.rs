@@ -910,6 +910,7 @@ impl McpServerError {
             // CosmRS and RPC errors
             SdkError::CosmRs(_) => BLOCKCHAIN_RPC_ERROR,
             SdkError::Rpc(_) => BLOCKCHAIN_RPC_ERROR,
+            SdkError::Evm(_) => BLOCKCHAIN_RPC_ERROR,
 
             // Transaction errors
             SdkError::TxBroadcast(_) => TRANSACTION_FAILED,
@@ -1036,7 +1037,7 @@ impl McpServerError {
     /// Get recovery suggestions based on SDK error type
     fn get_recovery_suggestions(sdk_error: &SdkError) -> Vec<&'static str> {
         match sdk_error {
-            SdkError::CosmRs(_) | SdkError::Rpc(_) => vec![
+            SdkError::CosmRs(_) | SdkError::Rpc(_) | SdkError::Evm(_) => vec![
                 "Check network connectivity",
                 "Verify RPC endpoint configuration",
                 "Try alternative RPC endpoints",
@@ -1120,7 +1121,7 @@ impl McpServerError {
     /// Get error severity level for monitoring and alerting
     fn get_error_severity(sdk_error: &SdkError) -> &'static str {
         match sdk_error {
-            SdkError::CosmRs(_) | SdkError::Rpc(_) => "high",
+            SdkError::CosmRs(_) | SdkError::Rpc(_) | SdkError::Evm(_) => "high",
             SdkError::TxBroadcast(_) | SdkError::TxSimulation(_) | SdkError::Tx(_) => "high",
             SdkError::Wallet(_) => "high",
             SdkError::Config(_) => "medium",
@@ -1142,6 +1143,7 @@ impl McpServerError {
         match sdk_error {
             SdkError::CosmRs(_) => "CosmRs",
             SdkError::Rpc(_) => "Rpc",
+            SdkError::Evm(_) => "Evm",
             SdkError::TxBroadcast(_) => "TxBroadcast",
             SdkError::TxSimulation(_) => "TxSimulation",
             SdkError::Wallet(_) => "Wallet",
@@ -2480,6 +2482,72 @@ impl McpToolProvider for MantraDexMcpServer {
                     "required": ["wallet_address"]
                 }
             }),
+            serde_json::json!({
+                "name": "wallet_get_evm_address",
+                "description": "Get the EVM address for a wallet",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Wallet address to get EVM address for (optional, uses active wallet if not provided)"
+                        }
+                    }
+                }
+            }),
+            // EVM Balance Tools
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "wallet_get_native_evm_balance",
+                "description": "Get native token (OM) balance on EVM",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Optional wallet address (uses active if not provided)"
+                        }
+                    }
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "wallet_get_erc20_balance",
+                "description": "Get ERC-20 token balance",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "token_address": {
+                            "type": "string",
+                            "description": "ERC-20 contract address"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Optional wallet address"
+                        }
+                    },
+                    "required": ["token_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "wallet_get_all_evm_balances",
+                "description": "Get all EVM balances (native + ERC-20 tokens)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Optional wallet address"
+                        },
+                        "token_addresses": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional list of ERC-20 tokens to query"
+                        }
+                    }
+                }
+            }),
             // Pool Query Tools
             serde_json::json!({
                 "name": "dex_get_pools",
@@ -2988,8 +3056,17 @@ impl McpToolProvider for MantraDexMcpServer {
             "wallet_list" => self.handle_list_wallets(arguments).await,
             "wallet_switch" => self.handle_switch_wallet(arguments).await,
             "wallet_get_active" => self.handle_get_active_wallet(arguments).await,
+            "wallet_get_evm_address" => self.handle_get_evm_address(arguments).await,
             "wallet_add_from_mnemonic" => self.handle_add_wallet_from_mnemonic(arguments).await,
             "wallet_remove" => self.handle_remove_wallet(arguments).await,
+
+            // EVM Balance tools
+            #[cfg(feature = "evm")]
+            "wallet_get_native_evm_balance" => self.handle_get_native_evm_balance(arguments).await,
+            #[cfg(feature = "evm")]
+            "wallet_get_erc20_balance" => self.handle_get_erc20_balance(arguments).await,
+            #[cfg(feature = "evm")]
+            "wallet_get_all_evm_balances" => self.handle_get_all_evm_balances(arguments).await,
 
             // DEX tools
             "dex_get_pools" => self.handle_get_pools(arguments).await,
@@ -3542,6 +3619,151 @@ impl MantraDexMcpServer {
                     "text": response_text
                 }
             ]
+        }))
+    }
+
+    /// Handle get_evm_address tool
+    #[cfg(feature = "evm")]
+    async fn handle_get_evm_address(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling get_evm_address tool call");
+
+        // Get wallet address from arguments or use active wallet
+        let wallet_address = arguments
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Get the EVM address using the SDK adapter
+        let (cosmos_address, evm_address) = self
+            .state
+            .sdk_adapter
+            .get_wallet_evm_address(wallet_address)
+            .await?;
+
+        // Create formatted response text
+        let mut response_text = format!("🔍 **Wallet Addresses**\n\n");
+        response_text.push_str(&format!("**Cosmos Address:** `{}`\n", cosmos_address));
+        response_text.push_str(&format!("**EVM Address:** `{}`\n", evm_address));
+        response_text.push_str("\n*Both addresses are derived from the same private key*\n");
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    #[cfg(not(feature = "evm"))]
+    async fn handle_get_evm_address(
+        &self,
+        _arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        Err(McpServerError::InvalidArguments(
+            "EVM support is not enabled. Rebuild with --features evm".to_string(),
+        ))
+    }
+
+    /// Handle get_native_evm_balance tool
+    #[cfg(feature = "evm")]
+    async fn handle_get_native_evm_balance(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling get_native_evm_balance tool call");
+
+        let wallet_address = arguments
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let result = self
+            .state
+            .sdk_adapter
+            .get_native_evm_balance(wallet_address)
+            .await?;
+
+        Ok(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": result
+            }]
+        }))
+    }
+
+    /// Handle get_erc20_balance tool
+    #[cfg(feature = "evm")]
+    async fn handle_get_erc20_balance(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling get_erc20_balance tool call");
+
+        let token_address = arguments
+            .get("token_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("token_address is required".to_string())
+            })?;
+
+        let wallet_address = arguments
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let result = self
+            .state
+            .sdk_adapter
+            .get_erc20_balance(token_address, wallet_address)
+            .await?;
+
+        Ok(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": result
+            }]
+        }))
+    }
+
+    /// Handle get_all_evm_balances tool
+    #[cfg(feature = "evm")]
+    async fn handle_get_all_evm_balances(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling get_all_evm_balances tool call");
+
+        let wallet_address = arguments
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let token_addresses = arguments
+            .get("token_addresses")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            });
+
+        let result = self
+            .state
+            .sdk_adapter
+            .get_all_evm_balances(wallet_address, token_addresses)
+            .await?;
+
+        Ok(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": result
+            }]
         }))
     }
 

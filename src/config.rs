@@ -194,6 +194,12 @@ pub struct MantraNetworkConfig {
     pub native_denom: String,
     /// Contract addresses
     pub contracts: ContractAddresses,
+    /// EVM RPC endpoint URL (optional)
+    #[cfg(feature = "evm")]
+    pub evm_rpc_url: Option<String>,
+    /// EVM chain ID (optional)
+    #[cfg(feature = "evm")]
+    pub evm_chain_id: Option<u64>,
 }
 
 impl MantraNetworkConfig {
@@ -217,13 +223,25 @@ impl MantraNetworkConfig {
             gas_adjustment: constants.default_gas_adjustment,
             native_denom: constants.native_denom.clone(),
             contracts,
+            #[cfg(feature = "evm")]
+            evm_rpc_url: None, // Will be populated from env config or network.toml
+            #[cfg(feature = "evm")]
+            evm_chain_id: None, // Will be populated from env config or network.toml
         })
     }
 
     /// Create from environment configuration (new method)
     pub fn from_env_config(env_config: &EnvironmentConfig) -> Result<Self, Error> {
         let constants = NetworkConstants::from(env_config);
-        Self::from_constants(&constants)
+        let mut config = Self::from_constants(&constants)?;
+
+        #[cfg(feature = "evm")]
+        {
+            config.evm_rpc_url = env_config.network.evm_rpc_url.clone();
+            config.evm_chain_id = env_config.network.evm_chain_id;
+        }
+
+        Ok(config)
     }
 
     /// Load contract addresses for the given network from the contracts configuration file.
@@ -289,6 +307,10 @@ impl Default for MantraNetworkConfig {
                 gas_adjustment: constants.default_gas_adjustment,
                 native_denom: constants.native_denom,
                 contracts: ContractAddresses::default(),
+                #[cfg(feature = "evm")]
+                evm_rpc_url: None,
+                #[cfg(feature = "evm")]
+                evm_chain_id: None,
             }),
             Err(_) => Self {
                 network_name: "mantra-dukong".to_string(),
@@ -298,6 +320,10 @@ impl Default for MantraNetworkConfig {
                 gas_adjustment: 1.5,
                 native_denom: "uom".to_string(),
                 contracts: ContractAddresses::default(),
+                #[cfg(feature = "evm")]
+                evm_rpc_url: None,
+                #[cfg(feature = "evm")]
+                evm_chain_id: None,
             },
         }
     }

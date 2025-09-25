@@ -387,6 +387,10 @@ impl Default for McpClientWrapper {
                 gas_adjustment: testnet_constants.default_gas_adjustment,
                 native_denom: testnet_constants.native_denom.clone(),
                 contracts: crate::config::ContractAddresses::default(),
+                #[cfg(feature = "evm")]
+                evm_rpc_url: None,
+                #[cfg(feature = "evm")]
+                evm_chain_id: None,
             }
         });
 

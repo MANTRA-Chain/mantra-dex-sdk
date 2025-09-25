@@ -4,6 +4,8 @@
 /// It provides access to all supported protocols through a unified interface.
 use crate::config::{ConfigurationManager, ContractType, MantraNetworkConfig, ProtocolId};
 use crate::error::Error;
+#[cfg(feature = "evm")]
+use crate::protocols::evm::EvmProtocol;
 use crate::protocols::{
     claimdrop::{ClaimdropFactoryClient, ClaimdropProtocol},
     dex::{DexProtocol, MantraDexClient},
@@ -60,6 +62,10 @@ pub struct MantraClient {
 
     /// ClaimDrop protocol instance
     claimdrop_protocol: Option<Arc<ClaimdropProtocol>>,
+
+    /// EVM protocol instance
+    #[cfg(feature = "evm")]
+    evm_protocol: Option<Arc<EvmProtocol>>,
 }
 
 impl MantraClient {
@@ -82,6 +88,8 @@ impl MantraClient {
 
         // Initialize protocols based on configuration
         let mut dex_protocol = None;
+        #[cfg(feature = "evm")]
+        let mut evm_protocol = None;
         let mut skip_protocol = None;
         let mut claimdrop_protocol = None;
 
@@ -92,6 +100,21 @@ impl MantraClient {
             let dex_arc = Arc::new(dex);
             protocol_registry.register(dex_arc.clone());
             dex_protocol = Some(dex_arc);
+        }
+
+        // Initialize EVM protocol if enabled
+        #[cfg(feature = "evm")]
+        if config_manager.is_protocol_enabled(&ProtocolId::Evm) {
+            let mut evm = crate::protocols::evm::EvmProtocol::new();
+
+            // Set RPC endpoint and chain ID from configuration if available
+            // TODO: Add configuration support for EVM RPC endpoints and chain IDs
+            // For now, this is a placeholder - actual config loading would be added
+
+            evm.initialize(rpc_client.clone()).await?;
+            let evm_arc = Arc::new(evm);
+            protocol_registry.register(evm_arc.clone());
+            evm_protocol = Some(evm_arc);
         }
 
         // Initialize Skip protocol if enabled
@@ -146,6 +169,8 @@ impl MantraClient {
             dex_protocol,
             skip_protocol,
             claimdrop_protocol,
+            #[cfg(feature = "evm")]
+            evm_protocol,
         })
     }
 
@@ -359,6 +384,20 @@ impl MantraClient {
                     self.claimdrop_protocol = None;
                 }
             }
+            #[cfg(feature = "evm")]
+            &ProtocolId::Evm => {
+                if self.config_manager.is_protocol_enabled(protocol_id) {
+                    if self.evm_protocol.is_some() {
+                        let mut evm = crate::protocols::evm::EvmProtocol::new();
+                        evm.initialize(self.rpc_client.clone()).await?;
+                        let evm_arc = Arc::new(evm);
+                        self.protocol_registry.register(evm_arc.clone());
+                        self.evm_protocol = Some(evm_arc);
+                    }
+                } else {
+                    self.evm_protocol = None;
+                }
+            }
         }
         Ok(())
     }
@@ -488,6 +527,19 @@ impl MantraClient {
             }
         }
 
+        Ok(client)
+    }
+
+    /// Get EVM client for Ethereum Virtual Machine operations
+    #[cfg(feature = "evm")]
+    pub async fn evm(&self) -> Result<crate::protocols::evm::client::EvmClient, Error> {
+        // Get EVM configuration from protocol registry
+        // TODO: Extract RPC URL and chain ID from configuration
+        // For now, use placeholder values - actual config loading would be implemented
+        let rpc_url = "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"; // Placeholder
+        let chain_id = 1; // Ethereum mainnet
+
+        let client = crate::protocols::evm::client::EvmClient::new(rpc_url, chain_id).await?;
         Ok(client)
     }
 

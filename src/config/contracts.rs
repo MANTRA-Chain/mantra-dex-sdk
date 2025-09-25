@@ -27,6 +27,18 @@ pub enum ContractType {
     ClaimdropFactory,
     /// ClaimDrop Campaign contract
     ClaimdropCampaign,
+    /// EVM RPC Endpoint
+    #[cfg(feature = "evm")]
+    EvmRpcEndpoint,
+    /// EVM Chain ID
+    #[cfg(feature = "evm")]
+    EvmChainId,
+    /// EVM USDC Token contract
+    #[cfg(feature = "evm")]
+    EvmUsdc,
+    /// EVM WETH Token contract
+    #[cfg(feature = "evm")]
+    EvmWeth,
 }
 
 impl fmt::Display for ContractType {
@@ -41,6 +53,14 @@ impl fmt::Display for ContractType {
             ContractType::SkipMantraDexAdapter => write!(f, "skip_mantra_dex_adapter"),
             ContractType::ClaimdropFactory => write!(f, "claimdrop_factory"),
             ContractType::ClaimdropCampaign => write!(f, "claimdrop_campaign"),
+            #[cfg(feature = "evm")]
+            ContractType::EvmRpcEndpoint => write!(f, "evm_rpc_endpoint"),
+            #[cfg(feature = "evm")]
+            ContractType::EvmChainId => write!(f, "evm_chain_id"),
+            #[cfg(feature = "evm")]
+            ContractType::EvmUsdc => write!(f, "evm_usdc"),
+            #[cfg(feature = "evm")]
+            ContractType::EvmWeth => write!(f, "evm_weth"),
         }
     }
 }
@@ -304,6 +324,11 @@ impl ContractRegistry {
                     | ContractType::SkipIbcHooksAdapter
                     | ContractType::SkipMantraDexAdapter => "skip",
                     ContractType::ClaimdropFactory | ContractType::ClaimdropCampaign => "claimdrop",
+                    #[cfg(feature = "evm")]
+                    ContractType::EvmRpcEndpoint
+                    | ContractType::EvmChainId
+                    | ContractType::EvmUsdc
+                    | ContractType::EvmWeth => "evm",
                     _ => "dex",
                 };
 

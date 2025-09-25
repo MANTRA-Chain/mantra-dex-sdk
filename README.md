@@ -1,14 +1,15 @@
 # MANTRA SDK
 
-A comprehensive Rust SDK for interacting with the MANTRA blockchain ecosystem, supporting multiple protocols including DEX, ClaimDrop, Skip, and more. Features wallet management, protocol-specific operations, and optional MCP server and TUI interfaces.
+A comprehensive Rust SDK for interacting with the MANTRA blockchain ecosystem, supporting multiple protocols including DEX, ClaimDrop, Skip, EVM, and more. Features wallet management, protocol-specific operations, and optional MCP server and TUI interfaces.
 
 ## Features
 
-- **Multi-Protocol Support**: Modular architecture supporting DEX, ClaimDrop, Skip, and future protocols
+- **Multi-Protocol Support**: Modular architecture supporting DEX, ClaimDrop, Skip, EVM, and future protocols
 - **Complete DEX Operations**: Swap execution, liquidity provision/withdrawal, pool management
 - **ClaimDrop Management**: Campaign creation, reward claims, allocation management
 - **Cross-Chain Operations**: Skip protocol integration for cross-chain swaps and routing
-- **HD Wallet Management**: BIP32/BIP39 compatible wallet generation and import
+- **EVM Compatibility**: Ethereum Virtual Machine support with contract calls, transactions, and ERC-20/721 helpers
+- **HD Wallet Management**: BIP32/BIP39 compatible wallet generation and import with EVM address derivation
 - **Multi-Network Support**: Configurable testnet/mainnet connectivity
 - **MCP Server Integration**: Model Context Protocol server with protocol-prefixed tools for AI agents
 - **Terminal UI**: Interactive command-line interface for DEX operations
@@ -20,7 +21,7 @@ A comprehensive Rust SDK for interacting with the MANTRA blockchain ecosystem, s
 ```
 src/
 ├── client.rs          # Generic MANTRA client with protocol adapters
-├── config.rs          # Network configuration and constants management  
+├── config.rs          # Network configuration and constants management
 ├── wallet/            # HD wallet operations and key management
 ├── error.rs           # Centralized error types and handling
 ├── protocols/         # Protocol implementations
@@ -31,6 +32,11 @@ src/
 │   │   ├── client.rs  # Campaign operations
 │   │   ├── factory.rs # Factory operations
 │   │   └── types.rs   # ClaimDrop types
+│   ├── evm/           # EVM protocol for Ethereum compatibility
+│   │   ├── client.rs  # EVM client with RPC interactions
+│   │   ├── types.rs   # EVM types and utilities
+│   │   ├── abi/       # ABI loading and encoding
+│   │   └── contracts/ # ERC-20/721 helpers
 │   └── skip/          # Skip protocol for cross-chain
 │       ├── client.rs  # Skip adapter client
 │       └── types.rs   # Skip-specific types
@@ -148,6 +154,14 @@ The MCP server provides protocol-prefixed tools for AI agents:
 - `skip_route_assets` - Find optimal cross-chain route
 - `skip_simulate_swap` - Simulate cross-chain swap
 
+**EVM Protocol Tools (requires `--features evm`):**
+- `evm_call` - Execute read-only contract calls
+- `evm_send` - Submit transactions to EVM
+- `evm_estimate_gas` - Estimate gas costs for transactions
+- `evm_get_logs` - Query blockchain event logs
+- `evm_deploy` - Deploy smart contracts
+- `evm_load_abi` - Load contract ABIs for interaction
+
 ### DEX Terminal UI
 ```bash
 cargo run --bin mantra-dex-tui --features tui-dex  # Primary DEX TUI entry point
@@ -183,6 +197,15 @@ Cross-chain operations:
 - **Swap Simulation**: Simulate cross-chain swaps before execution
 - **IBC Integration**: Handle Inter-Blockchain Communication
 
+### EVM Protocol (`src/protocols/evm/`) (requires `--features evm`)
+Ethereum Virtual Machine compatibility:
+- **Contract Calls**: Execute read-only contract calls via `eth_call`
+- **Transaction Submission**: Send transactions with EIP-1559 fee market
+- **Event Monitoring**: Query and filter blockchain event logs
+- **Token Helpers**: ERC-20 and ERC-721 contract helpers
+- **ABI Support**: Load and encode/decode contract ABIs
+- **Address Derivation**: Generate Ethereum addresses from Cosmos keys
+
 ```rust
 // Example: Execute a DEX swap
 let dex_client = client.dex()?;
@@ -192,6 +215,19 @@ let swap_result = dex_client.execute_swap(
     "uusdy",                // ask_asset_denom
     Some("0.05")            // max_slippage (5%)
 ).await?;
+```
+
+```rust
+// Example: EVM contract interaction (requires --features evm)
+use alloy_primitives::address;
+
+let evm_client = client.evm().await?;
+let usdc_addr = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+let erc20 = evm_client.erc20(usdc_addr);
+
+// Query USDC balance
+let balance = erc20.balance_of(evm_client.ethereum_address()?).await?;
+println!("USDC Balance: {}", balance);
 ```
 
 ### Wallet (`src/wallet.rs`)

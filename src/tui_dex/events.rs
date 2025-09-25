@@ -248,7 +248,7 @@ pub struct AsyncBlockchainProcessor {
     /// Event sender to communicate with the main event loop
     event_sender: mpsc::UnboundedSender<Event>,
     /// Optional client reference for real blockchain operations
-    client: Option<std::sync::Arc<crate::client::MantraDexClient>>,
+    client: Option<std::sync::Arc<crate::protocols::dex::MantraDexClient>>,
 }
 
 impl AsyncBlockchainProcessor {
@@ -263,7 +263,7 @@ impl AsyncBlockchainProcessor {
     /// Create a new async blockchain processor with both event sender and client
     pub fn with_client(
         event_sender: mpsc::UnboundedSender<Event>,
-        client: std::sync::Arc<crate::client::MantraDexClient>,
+        client: std::sync::Arc<crate::protocols::dex::MantraDexClient>,
     ) -> Self {
         Self {
             event_sender,
@@ -643,7 +643,7 @@ impl AsyncBlockchainProcessor {
     /// Get post-transaction information (user balance and pool total supply)
     async fn get_post_transaction_info(
         &self,
-        client: &std::sync::Arc<crate::client::MantraDexClient>,
+        client: &std::sync::Arc<crate::protocols::dex::MantraDexClient>,
         pool_id: &str,
         lp_token_denom: &str,
     ) -> (Option<cosmwasm_std::Uint128>, Option<cosmwasm_std::Uint128>) {

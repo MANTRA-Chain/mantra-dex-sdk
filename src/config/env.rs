@@ -36,6 +36,12 @@ pub struct NetworkEnvConfig {
     pub rpc_timeout_secs: Option<u64>,
     /// Connection pool size for RPC clients
     pub rpc_pool_size: Option<u32>,
+    /// EVM RPC endpoint URL (optional)
+    #[cfg(feature = "evm")]
+    pub evm_rpc_url: Option<String>,
+    /// EVM chain ID (optional)
+    #[cfg(feature = "evm")]
+    pub evm_chain_id: Option<u64>,
 }
 
 impl Default for NetworkEnvConfig {
@@ -50,6 +56,10 @@ impl Default for NetworkEnvConfig {
             native_denom: None,
             rpc_timeout_secs: None,
             rpc_pool_size: None,
+            #[cfg(feature = "evm")]
+            evm_rpc_url: None,
+            #[cfg(feature = "evm")]
+            evm_chain_id: None,
         }
     }
 }
@@ -178,7 +188,7 @@ impl EnvironmentConfig {
         let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
 
         // Configuration file names to try (in order of preference)
-        let config_files = vec!["mantra.toml", "mantra.json", "config.toml", "config.json"];
+        let config_files = vec!["mantra.toml", "mantra.json", "config.toml", "config.json", "network.toml"];
 
         // Paths to search for configuration files
         let search_paths = vec![
@@ -305,6 +315,20 @@ impl EnvironmentConfig {
         if let Ok(pool_size_str) = env::var(format!("{}_RPC_POOL_SIZE", ENV_NETWORK_PREFIX)) {
             if let Ok(pool_size) = pool_size_str.parse::<u32>() {
                 self.network.rpc_pool_size = Some(pool_size);
+            }
+        }
+
+        // Load EVM configuration from environment variables
+        #[cfg(feature = "evm")]
+        {
+            if let Ok(evm_rpc_url) = env::var(format!("{}_EVM_RPC_URL", ENV_NETWORK_PREFIX)) {
+                self.network.evm_rpc_url = Some(evm_rpc_url);
+            }
+
+            if let Ok(evm_chain_id_str) = env::var(format!("{}_EVM_CHAIN_ID", ENV_NETWORK_PREFIX)) {
+                if let Ok(evm_chain_id) = evm_chain_id_str.parse::<u64>() {
+                    self.network.evm_chain_id = Some(evm_chain_id);
+                }
             }
         }
 

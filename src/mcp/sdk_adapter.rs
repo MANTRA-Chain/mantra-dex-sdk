@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 use crate::client::MantraClient;
 use crate::config::MantraNetworkConfig;
 use crate::protocols::dex::MantraDexClient;
-use crate::wallet::{MantraWallet, WalletInfo};
+use crate::wallet::{MantraWallet, MultiVMWallet, WalletInfo};
 
 use super::server::{McpResult, McpServerError};
 
@@ -667,6 +667,90 @@ impl McpSdkAdapter {
         wallets.contains_key(address)
     }
 
+    /// Get a MultiVM wallet instance by address (for EVM operations)
+    /// This creates a wallet with both Cosmos and EVM keys derived from the same mnemonic
+    pub async fn get_multivm_wallet_by_address(&self, address: &str) -> McpResult<Option<MultiVMWallet>> {
+        use std::env;
+
+        // Check if wallet exists in our collection
+        if !self.wallet_exists(address).await {
+            return Ok(None);
+        }
+
+        // Get environment mnemonic
+        let mnemonic = match env::var("WALLET_MNEMONIC") {
+            Ok(m) if !m.trim().is_empty() => m,
+            _ => {
+                error!("WALLET_MNEMONIC environment variable is not set or empty");
+                return Err(McpServerError::InvalidArguments(
+                    "Cannot access wallet: mnemonic not configured".to_string(),
+                ));
+            }
+        };
+
+        // Check cache first for known derivation index
+        {
+            let cache = self.wallet_derivation_cache.read().await;
+            if let Some(&derivation_index) = cache.get(address) {
+                match MultiVMWallet::from_mnemonic(&mnemonic, derivation_index) {
+                    Ok(wallet) => {
+                        // Verify the Cosmos address matches
+                        if let Ok(cosmos_addr) = wallet.cosmos_address() {
+                            if cosmos_addr.to_string() == address {
+                                debug!(
+                                    "Retrieved MultiVM wallet from cache at index {} for address {}",
+                                    derivation_index, address
+                                );
+                                return Ok(Some(wallet));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to create MultiVM wallet for cached index {}: {}",
+                            derivation_index, e
+                        );
+                    }
+                }
+            }
+        }
+
+        // Search for the correct derivation index
+        debug!("Performing derivation search for MultiVM wallet with address: {}", address);
+        let max_index = self.config.max_wallet_derivation_index;
+        for index in 0..=max_index {
+            match MultiVMWallet::from_mnemonic(&mnemonic, index) {
+                Ok(wallet) => {
+                    if let Ok(cosmos_addr) = wallet.cosmos_address() {
+                        if cosmos_addr.to_string() == address {
+                            debug!(
+                                "Found MultiVM wallet at derivation index {} for address {}",
+                                index, address
+                            );
+
+                            // Cache the successful derivation index
+                            {
+                                let mut cache = self.wallet_derivation_cache.write().await;
+                                cache.insert(address.to_string(), index);
+                            }
+
+                            return Ok(Some(wallet));
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to create MultiVM wallet at index {}: {}", index, e);
+                }
+            }
+        }
+
+        warn!(
+            "Could not find MultiVM wallet derivation for address {} within {} indices",
+            address, max_index
+        );
+        Ok(None)
+    }
+
     /// Get a wallet instance by address
     /// This method uses cached derivation indices for efficiency and falls back to a targeted search
     pub async fn get_wallet_by_address(&self, address: &str) -> McpResult<Option<MantraWallet>> {
@@ -772,6 +856,43 @@ impl McpSdkAdapter {
             Some(wallet) => Ok(wallet),
             None => Err(McpServerError::WalletNotConfigured),
         }
+    }
+
+    /// Get the EVM address for a wallet
+    #[cfg(feature = "evm")]
+    pub async fn get_wallet_evm_address(
+        &self,
+        wallet_address: Option<String>,
+    ) -> McpResult<(String, String)> {
+        // Get the wallet address to use
+        let address = if let Some(addr) = wallet_address {
+            addr
+        } else {
+            // Use active wallet
+            match self.get_active_wallet_info().await? {
+                Some(wallet_info) => wallet_info.address,
+                None => return Err(McpServerError::WalletNotConfigured),
+            }
+        };
+
+        // Get the MultiVM wallet which has both Cosmos and EVM keys
+        let wallet = match self.get_multivm_wallet_by_address(&address).await? {
+            Some(w) => w,
+            None => {
+                return Err(McpServerError::InvalidArguments(format!(
+                    "Wallet not found: {}",
+                    address
+                )))
+            }
+        };
+
+        // Get the EVM address using the proper Ethereum HD path
+        let evm_address = wallet
+            .evm_address()
+            .map_err(|e| McpServerError::Sdk(e))?
+            .to_string();
+
+        Ok((address, evm_address))
     }
 
     /// Get spendable balances for a specific address
@@ -1491,6 +1612,18 @@ impl McpSdkAdapter {
 
                 self.monitor_transaction(tx_hash, timeout_seconds).await
             }
+            #[cfg(feature = "evm")]
+            "evm_call" => self.evm_call(args).await,
+            #[cfg(feature = "evm")]
+            "evm_send" => self.evm_send(args).await,
+            #[cfg(feature = "evm")]
+            "evm_estimate_gas" => self.evm_estimate_gas(args).await,
+            #[cfg(feature = "evm")]
+            "evm_get_logs" => self.evm_get_logs(args).await,
+            #[cfg(feature = "evm")]
+            "evm_deploy" => self.evm_deploy(args).await,
+            #[cfg(feature = "evm")]
+            "evm_load_abi" => self.evm_load_abi(args).await,
             _ => {
                 // For unknown tools, return an error result
                 Ok(serde_json::json!({
@@ -1507,16 +1640,15 @@ impl McpSdkAdapter {
     /// Get the default network configuration
     /// This is a temporary method until proper network configuration management is implemented
     async fn get_default_network_config(&self) -> McpResult<MantraNetworkConfig> {
-        // For now, we'll use the testnet configuration
-        // This should be replaced with proper configuration management
-        use crate::config::NetworkConstants;
+        // Load environment configuration which includes EVM settings
+        use crate::config::env::EnvironmentConfig;
 
-        let network_constants = NetworkConstants::load("mantra-dukong").map_err(|e| {
-            McpServerError::Internal(format!("Failed to load network constants: {}", e))
+        let env_config = EnvironmentConfig::load().map_err(|e| {
+            McpServerError::Internal(format!("Failed to load environment config: {}", e))
         })?;
 
         let network_config =
-            MantraNetworkConfig::from_constants(&network_constants).map_err(|e| {
+            MantraNetworkConfig::from_env_config(&env_config).map_err(|e| {
                 McpServerError::Internal(format!("Failed to create network config: {}", e))
             })?;
         Ok(network_config)
@@ -2791,6 +2923,212 @@ impl McpSdkAdapter {
                     }
                 }
             }
+            #[cfg(feature = "evm")]
+            "evm_call" => {
+                // Validate required parameters for evm_call
+                for required_param in &["contract_address", "call_data"] {
+                    if let Some(value) = parameters.get(*required_param) {
+                        if value.trim().is_empty() {
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
+                        }
+                    } else {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
+                    }
+                }
+
+                // Validate contract_address format
+                if let Some(addr) = parameters.get("contract_address") {
+                    if !addr.starts_with("0x") || addr.len() != 42 {
+                        return Err(McpServerError::InvalidArguments(
+                            "contract_address must be a valid Ethereum address (0x...)".to_string(),
+                        ));
+                    }
+                }
+
+                // Validate call_data format
+                if let Some(data) = parameters.get("call_data") {
+                    if !data.starts_with("0x") {
+                        return Err(McpServerError::InvalidArguments(
+                            "call_data must be hex-encoded (start with 0x)".to_string(),
+                        ));
+                    }
+                }
+            }
+            #[cfg(feature = "evm")]
+            "evm_send" => {
+                // Validate required parameters for evm_send
+                for required_param in &["to_address", "value"] {
+                    if let Some(value) = parameters.get(*required_param) {
+                        if value.trim().is_empty() {
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
+                        }
+                    } else {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
+                    }
+                }
+
+                // Validate to_address format
+                if let Some(addr) = parameters.get("to_address") {
+                    if !addr.starts_with("0x") || addr.len() != 42 {
+                        return Err(McpServerError::InvalidArguments(
+                            "to_address must be a valid Ethereum address (0x...)".to_string(),
+                        ));
+                    }
+                }
+
+                // Validate data format if provided
+                if let Some(data) = parameters.get("data") {
+                    if !data.starts_with("0x") {
+                        return Err(McpServerError::InvalidArguments(
+                            "data must be hex-encoded (start with 0x)".to_string(),
+                        ));
+                    }
+                }
+            }
+            #[cfg(feature = "evm")]
+            "evm_estimate_gas" => {
+                // Validate required parameters for evm_estimate_gas
+                for required_param in &["to_address"] {
+                    if let Some(value) = parameters.get(*required_param) {
+                        if value.trim().is_empty() {
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
+                        }
+                    } else {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
+                    }
+                }
+
+                // Validate to_address format
+                if let Some(addr) = parameters.get("to_address") {
+                    if !addr.starts_with("0x") || addr.len() != 42 {
+                        return Err(McpServerError::InvalidArguments(
+                            "to_address must be a valid Ethereum address (0x...)".to_string(),
+                        ));
+                    }
+                }
+            }
+            #[cfg(feature = "evm")]
+            "evm_get_logs" => {
+                // Validate required parameters for evm_get_logs
+                for required_param in &["contract_address"] {
+                    if let Some(value) = parameters.get(*required_param) {
+                        if value.trim().is_empty() {
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
+                        }
+                    } else {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
+                    }
+                }
+
+                // Validate contract_address format
+                if let Some(addr) = parameters.get("contract_address") {
+                    if !addr.starts_with("0x") || addr.len() != 42 {
+                        return Err(McpServerError::InvalidArguments(
+                            "contract_address must be a valid Ethereum address (0x...)".to_string(),
+                        ));
+                    }
+                }
+
+                // Validate event_signature format if provided
+                if let Some(sig) = parameters.get("event_signature") {
+                    if !sig.starts_with("0x") || sig.len() != 66 {
+                        return Err(McpServerError::InvalidArguments(
+                            "event_signature must be a valid event signature hash (0x...)"
+                                .to_string(),
+                        ));
+                    }
+                }
+            }
+            #[cfg(feature = "evm")]
+            "evm_deploy" => {
+                // Validate required parameters for evm_deploy
+                for required_param in &["bytecode"] {
+                    if let Some(value) = parameters.get(*required_param) {
+                        if value.trim().is_empty() {
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
+                        }
+                    } else {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
+                    }
+                }
+
+                // Validate bytecode format
+                if let Some(bytecode) = parameters.get("bytecode") {
+                    if !bytecode.starts_with("0x") {
+                        return Err(McpServerError::InvalidArguments(
+                            "bytecode must be hex-encoded (start with 0x)".to_string(),
+                        ));
+                    }
+                }
+
+                // Validate constructor_args format if provided
+                if let Some(args) = parameters.get("constructor_args") {
+                    if !args.starts_with("0x") {
+                        return Err(McpServerError::InvalidArguments(
+                            "constructor_args must be hex-encoded (start with 0x)".to_string(),
+                        ));
+                    }
+                }
+            }
+            #[cfg(feature = "evm")]
+            "evm_load_abi" => {
+                // Validate required parameters for evm_load_abi
+                for required_param in &["abi_key"] {
+                    if let Some(value) = parameters.get(*required_param) {
+                        if value.trim().is_empty() {
+                            return Err(McpServerError::InvalidArguments(format!(
+                                "{} cannot be empty",
+                                required_param
+                            )));
+                        }
+                    } else {
+                        return Err(McpServerError::InvalidArguments(format!(
+                            "{} parameter is required",
+                            required_param
+                        )));
+                    }
+                }
+
+                // Either abi_json or abi_file_path must be provided
+                let has_abi_json = parameters.get("abi_json").is_some();
+                let has_abi_file = parameters.get("abi_file_path").is_some();
+
+                if !has_abi_json && !has_abi_file {
+                    return Err(McpServerError::InvalidArguments(
+                        "Either abi_json or abi_file_path parameter is required".to_string(),
+                    ));
+                }
+            }
             _ => {
                 // For other tools, perform basic validation
                 for (key, value) in parameters {
@@ -3772,6 +4110,716 @@ impl McpSdkAdapter {
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))
     }
+
+    // =============================================================================
+    // EVM Protocol Tools
+    // =============================================================================
+
+    /// Execute a read-only contract call on EVM
+    #[cfg(feature = "evm")]
+    pub async fn evm_call(&self, args: Value) -> McpResult<Value> {
+        debug!("SDK Adapter: Executing EVM call with args: {:?}", args);
+
+        // Parse required parameters
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("contract_address is required".to_string())
+            })?;
+
+        let call_data = args
+            .get("call_data")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("call_data is required".to_string()))?;
+
+        // Parse optional parameters
+        let block_number = args.get("block_number").and_then(|v| v.as_str());
+
+        // Validate contract address format
+        if !contract_address.starts_with("0x") || contract_address.len() != 42 {
+            return Err(McpServerError::InvalidArguments(
+                "contract_address must be a valid Ethereum address (0x...)".to_string(),
+            ));
+        }
+
+        // Validate call data format
+        if !call_data.starts_with("0x") {
+            return Err(McpServerError::InvalidArguments(
+                "call_data must be hex-encoded (start with 0x)".to_string(),
+            ));
+        }
+
+        // Get EVM client
+        let client = MantraClient::new(self.get_default_network_config().await?, None)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        let evm_client = client.evm().await.map_err(|e| McpServerError::Sdk(e))?;
+
+        // Parse contract address
+        let contract_addr = alloy_primitives::Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // Parse call data
+        let call_data_bytes = hex::decode(&call_data[2..])
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid call data: {}", e)))?;
+
+        // Create call request
+        let call_request = crate::protocols::evm::types::EvmCallRequest::new(
+            crate::protocols::evm::types::EthAddress(contract_addr),
+            call_data_bytes,
+        );
+
+        if let Some(block) = block_number {
+            let request = call_request.at_block(block.to_string());
+            let result = evm_client
+                .call(request)
+                .await
+                .map_err(|e| McpServerError::Sdk(e))?;
+            Ok(serde_json::json!({
+                "status": "success",
+                "operation": "evm_call",
+                "contract_address": contract_address,
+                "call_data": call_data,
+                "block_number": block,
+                "result": format!("0x{}", hex::encode(&result)),
+                "result_length": result.len(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }))
+        } else {
+            let result = evm_client
+                .call(call_request)
+                .await
+                .map_err(|e| McpServerError::Sdk(e))?;
+            Ok(serde_json::json!({
+                "status": "success",
+                "operation": "evm_call",
+                "contract_address": contract_address,
+                "call_data": call_data,
+                "result": format!("0x{}", hex::encode(&result)),
+                "result_length": result.len(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }))
+        }
+    }
+
+    /// Submit a transaction to EVM
+    #[cfg(feature = "evm")]
+    pub async fn evm_send(&self, args: Value) -> McpResult<Value> {
+        debug!("SDK Adapter: Sending EVM transaction with args: {:?}", args);
+
+        // Parse required parameters
+        let to_address = args
+            .get("to_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("to_address is required".to_string())
+            })?;
+
+        let value = args
+            .get("value")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("value is required".to_string()))?;
+
+        // Parse optional parameters
+        let data = args.get("data").and_then(|v| v.as_str());
+        let gas_limit = args.get("gas_limit").and_then(|v| v.as_u64());
+        let max_fee_per_gas = args.get("max_fee_per_gas").and_then(|v| v.as_str());
+        let max_priority_fee_per_gas = args
+            .get("max_priority_fee_per_gas")
+            .and_then(|v| v.as_str());
+
+        // Validate addresses
+        if !to_address.starts_with("0x") || to_address.len() != 42 {
+            return Err(McpServerError::InvalidArguments(
+                "to_address must be a valid Ethereum address (0x...)".to_string(),
+            ));
+        }
+
+        // Parse value
+        let value_u256 = alloy_primitives::U256::from_str(value)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid value: {}", e)))?;
+
+        // Get wallet and EVM client
+        let wallet = self.get_active_wallet_with_validation().await?;
+        let client = MantraClient::new(
+            self.get_default_network_config().await?,
+            Some(Arc::new(wallet)),
+        )
+        .await
+        .map_err(|e| McpServerError::Sdk(e))?;
+
+        let evm_client = client.evm().await.map_err(|e| McpServerError::Sdk(e))?;
+
+        // Parse addresses and data
+        let to_addr = alloy_primitives::Address::from_str(to_address)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid to_address: {}", e)))?;
+
+        let tx_data = if let Some(data_str) = data {
+            if !data_str.starts_with("0x") {
+                return Err(McpServerError::InvalidArguments(
+                    "data must be hex-encoded (start with 0x)".to_string(),
+                ));
+            }
+            hex::decode(&data_str[2..])
+                .map_err(|e| McpServerError::InvalidArguments(format!("Invalid data: {}", e)))?
+        } else {
+            Vec::new()
+        };
+
+        // Create transaction request
+        let mut tx_request =
+            crate::protocols::evm::types::EvmTransactionRequest::new(evm_client.chain_id())
+                .to(crate::protocols::evm::types::EthAddress(to_addr))
+                .value(value_u256)
+                .data(tx_data);
+
+        if let Some(gas) = gas_limit {
+            tx_request = tx_request.gas_limit(gas);
+        }
+
+        if let Some(max_fee) = max_fee_per_gas {
+            let max_fee_u256 = alloy_primitives::U256::from_str(max_fee).map_err(|e| {
+                McpServerError::InvalidArguments(format!("Invalid max_fee_per_gas: {}", e))
+            })?;
+            tx_request = tx_request.eip1559_fees(max_fee_u256, alloy_primitives::U256::from(0));
+        }
+
+        if let Some(priority_fee) = max_priority_fee_per_gas {
+            let priority_fee_u256 =
+                alloy_primitives::U256::from_str(priority_fee).map_err(|e| {
+                    McpServerError::InvalidArguments(format!(
+                        "Invalid max_priority_fee_per_gas: {}",
+                        e
+                    ))
+                })?;
+            // Update the priority fee if max_fee was already set
+            if let Some(max_fee) = max_fee_per_gas {
+                let max_fee_u256 = alloy_primitives::U256::from_str(max_fee).unwrap();
+                tx_request = tx_request.eip1559_fees(max_fee_u256, priority_fee_u256);
+            }
+        }
+
+        // Estimate gas if not provided
+        let final_gas_limit = if let Some(gas) = gas_limit {
+            gas
+        } else {
+            evm_client
+                .estimate_gas(tx_request.clone())
+                .await
+                .map_err(|e| McpServerError::Sdk(e))?
+        };
+
+        // TODO: Implement actual transaction submission
+        // For now, return a placeholder response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "evm_send",
+            "to_address": to_address,
+            "value": value,
+            "gas_limit": final_gas_limit,
+            "estimated_gas": final_gas_limit,
+            "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000", // Placeholder
+            "note": "Transaction submission not yet fully implemented",
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Estimate gas for an EVM transaction
+    #[cfg(feature = "evm")]
+    pub async fn evm_estimate_gas(&self, args: Value) -> McpResult<Value> {
+        debug!("SDK Adapter: Estimating EVM gas with args: {:?}", args);
+
+        // Parse required parameters
+        let to_address = args
+            .get("to_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("to_address is required".to_string())
+            })?;
+
+        let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+
+        // Parse optional parameters
+        let data = args.get("data").and_then(|v| v.as_str());
+
+        // Validate address
+        if !to_address.starts_with("0x") || to_address.len() != 42 {
+            return Err(McpServerError::InvalidArguments(
+                "to_address must be a valid Ethereum address (0x...)".to_string(),
+            ));
+        }
+
+        // Get EVM client
+        let client = MantraClient::new(self.get_default_network_config().await?, None)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        let evm_client = client.evm().await.map_err(|e| McpServerError::Sdk(e))?;
+
+        // Parse parameters
+        let to_addr = alloy_primitives::Address::from_str(to_address)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid to_address: {}", e)))?;
+
+        let value_u256 = alloy_primitives::U256::from_str(value)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid value: {}", e)))?;
+
+        let tx_data = if let Some(data_str) = data {
+            if !data_str.starts_with("0x") {
+                return Err(McpServerError::InvalidArguments(
+                    "data must be hex-encoded (start with 0x)".to_string(),
+                ));
+            }
+            hex::decode(&data_str[2..])
+                .map_err(|e| McpServerError::InvalidArguments(format!("Invalid data: {}", e)))?
+        } else {
+            Vec::new()
+        };
+
+        // Create transaction request
+        let tx_request =
+            crate::protocols::evm::types::EvmTransactionRequest::new(evm_client.chain_id())
+                .to(crate::protocols::evm::types::EthAddress(to_addr))
+                .value(value_u256)
+                .data(tx_data);
+
+        // Estimate gas
+        let gas_estimate = evm_client
+            .estimate_gas(tx_request)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        // Get current fee data
+        let (base_fee, priority_fee) = evm_client
+            .get_fee_data()
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        let gas_price = base_fee + priority_fee;
+        let estimated_cost_wei = gas_price.to_string();
+
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "evm_estimate_gas",
+            "to_address": to_address,
+            "value": value,
+            "gas_estimate": gas_estimate,
+            "fee_data": {
+                "base_fee_per_gas": base_fee.to_string(),
+                "suggested_priority_fee": priority_fee.to_string(),
+                "estimated_max_fee_per_gas": gas_price.to_string()
+            },
+            "estimated_cost_wei": estimated_cost_wei,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Query EVM event logs
+    #[cfg(feature = "evm")]
+    pub async fn evm_get_logs(&self, args: Value) -> McpResult<Value> {
+        debug!("SDK Adapter: Getting EVM logs with args: {:?}", args);
+
+        // Parse required parameters
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("contract_address is required".to_string())
+            })?;
+
+        // Parse optional parameters
+        let event_signature = args.get("event_signature").and_then(|v| v.as_str());
+        let from_block = args.get("from_block").and_then(|v| v.as_str());
+        let to_block = args.get("to_block").and_then(|v| v.as_str());
+        let topics = args.get("topics").and_then(|v| v.as_array());
+
+        // Validate contract address
+        if !contract_address.starts_with("0x") || contract_address.len() != 42 {
+            return Err(McpServerError::InvalidArguments(
+                "contract_address must be a valid Ethereum address (0x...)".to_string(),
+            ));
+        }
+
+        // Get EVM client
+        let client = MantraClient::new(self.get_default_network_config().await?, None)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        let evm_client = client.evm().await.map_err(|e| McpServerError::Sdk(e))?;
+
+        // Parse contract address
+        let contract_addr = alloy_primitives::Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract_address: {}", e))
+        })?;
+
+        // Build event topics
+        let mut event_topics = vec![{
+            let mut bytes = [0u8; 32];
+            bytes[12..].copy_from_slice(contract_addr.0.as_slice());
+            alloy_primitives::B256::from(bytes)
+        }];
+
+        if let Some(sig) = event_signature {
+            if !sig.starts_with("0x") {
+                return Err(McpServerError::InvalidArguments(
+                    "event_signature must be hex-encoded (start with 0x)".to_string(),
+                ));
+            }
+            let topic_hash = alloy_primitives::B256::from_str(sig).map_err(|e| {
+                McpServerError::InvalidArguments(format!("Invalid event_signature: {}", e))
+            })?;
+            event_topics.insert(0, topic_hash);
+        }
+
+        if let Some(topics_array) = topics {
+            for topic in topics_array {
+                if let Some(topic_str) = topic.as_str() {
+                    if topic_str.starts_with("0x") {
+                        let topic_hash =
+                            alloy_primitives::B256::from_str(topic_str).map_err(|e| {
+                                McpServerError::InvalidArguments(format!(
+                                    "Invalid topic: {}",
+                                    topic_str
+                                ))
+                            })?;
+                        event_topics.push(topic_hash);
+                    }
+                }
+            }
+        }
+
+        // Create event filter
+        let mut filter = crate::protocols::evm::types::EventFilter::new().addresses(vec![
+            crate::protocols::evm::types::EthAddress(contract_addr),
+        ]);
+
+        if let Some(from) = from_block {
+            filter = filter.block_range(Some(from.to_string()), to_block.map(|s| s.to_string()));
+        }
+
+        // Set topics (simplified - in practice, this would be more complex)
+        let mut topics_vec = Vec::new();
+        for topic in event_topics.into_iter().skip(1) {
+            topics_vec.push(Some(topic));
+        }
+        filter.topics = topics_vec;
+
+        // Query logs
+        let logs = evm_client
+            .get_logs(filter)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "evm_get_logs",
+            "contract_address": contract_address,
+            "event_signature": event_signature,
+            "from_block": from_block,
+            "to_block": to_block,
+            "logs": logs.iter().map(|log| {
+                serde_json::json!({
+                    "address": format!("{:?}", log.address()),
+                    "topics": log.topics().iter().map(|t| format!("{:?}", t)).collect::<Vec<_>>(),
+                    "data": format!("0x{}", hex::encode(log.data().data.0.clone())),
+                    "block_number": log.block_number,
+                    "transaction_hash": format!("{:?}", log.transaction_hash),
+                    "log_index": log.log_index
+                })
+            }).collect::<Vec<_>>(),
+            "log_count": logs.len(),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Deploy a contract to EVM
+    #[cfg(feature = "evm")]
+    pub async fn evm_deploy(&self, args: Value) -> McpResult<Value> {
+        debug!("SDK Adapter: Deploying EVM contract with args: {:?}", args);
+
+        // Parse required parameters
+        let bytecode = args
+            .get("bytecode")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("bytecode is required".to_string()))?;
+
+        // Parse optional parameters
+        let constructor_args = args.get("constructor_args").and_then(|v| v.as_str());
+        let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("0");
+
+        // Validate bytecode
+        if !bytecode.starts_with("0x") {
+            return Err(McpServerError::InvalidArguments(
+                "bytecode must be hex-encoded (start with 0x)".to_string(),
+            ));
+        }
+
+        // Parse value
+        let value_u256 = alloy_primitives::U256::from_str(value)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid value: {}", value)))?;
+
+        // Get wallet and EVM client
+        let wallet = self.get_active_wallet_with_validation().await?;
+        let client = MantraClient::new(
+            self.get_default_network_config().await?,
+            Some(Arc::new(wallet)),
+        )
+        .await
+        .map_err(|e| McpServerError::Sdk(e))?;
+
+        let evm_client = client.evm().await.map_err(|e| McpServerError::Sdk(e))?;
+
+        // Combine bytecode with constructor args if provided
+        let mut deploy_data = hex::decode(&bytecode[2..])
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid bytecode: {}", e)))?;
+
+        if let Some(args_hex) = constructor_args {
+            if !args_hex.starts_with("0x") {
+                return Err(McpServerError::InvalidArguments(
+                    "constructor_args must be hex-encoded (start with 0x)".to_string(),
+                ));
+            }
+            let args_bytes = hex::decode(&args_hex[2..]).map_err(|e| {
+                McpServerError::InvalidArguments(format!("Invalid constructor_args: {}", e))
+            })?;
+            deploy_data.extend(args_bytes);
+        }
+
+        // Create deployment transaction
+        let tx_request =
+            crate::protocols::evm::types::EvmTransactionRequest::new(evm_client.chain_id())
+                .value(value_u256)
+                .data(deploy_data);
+
+        // Estimate gas
+        let gas_estimate = evm_client
+            .estimate_gas(tx_request)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        // TODO: Implement actual contract deployment
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "evm_deploy",
+            "bytecode_length": bytecode.len(),
+            "constructor_args_provided": constructor_args.is_some(),
+            "value": value,
+            "estimated_gas": gas_estimate,
+            "contract_address": "0x0000000000000000000000000000000000000000", // Placeholder - would be computed
+            "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000", // Placeholder
+            "note": "Contract deployment not yet fully implemented",
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Load an ABI for contract interaction
+    #[cfg(feature = "evm")]
+    pub async fn evm_load_abi(&self, args: Value) -> McpResult<Value> {
+        debug!("SDK Adapter: Loading EVM ABI with args: {:?}", args);
+
+        // Parse required parameters
+        let abi_json = args
+            .get("abi_json")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("abi_json is required".to_string()))?;
+
+        let abi_key = args
+            .get("abi_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("abi_key is required".to_string()))?;
+
+        // Parse optional parameters
+        let abi_file_path = args.get("abi_file_path").and_then(|v| v.as_str());
+
+        // TODO: Implement ABI loading and caching
+        // For now, return a placeholder response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "evm_load_abi",
+            "abi_key": abi_key,
+            "abi_json_length": abi_json.len(),
+            "abi_file_path": abi_file_path,
+            "functions_loaded": 0, // Placeholder
+            "events_loaded": 0, // Placeholder
+            "note": "ABI loading not yet fully implemented",
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Query native EVM balance
+    #[cfg(feature = "evm")]
+    pub async fn get_native_evm_balance(
+        &self,
+        wallet_address: Option<String>,
+    ) -> McpResult<String> {
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+
+        // Get EVM client
+        let network_config = self.get_default_network_config().await?;
+        let evm_rpc_url = network_config
+            .evm_rpc_url
+            .as_ref()
+            .ok_or_else(|| McpServerError::InvalidArguments("EVM RPC URL not configured".to_string()))?;
+        let evm_chain_id = network_config
+            .evm_chain_id
+            .ok_or_else(|| McpServerError::InvalidArguments("EVM chain ID not configured".to_string()))?;
+
+        let evm_client = crate::protocols::evm::client::EvmClient::new(evm_rpc_url, evm_chain_id)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        // Query balance
+        let evm_address = alloy_primitives::Address::from_str(&evm_addr)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid EVM address: {}", e)))?;
+
+        let balance = evm_client
+            .get_balance(crate::protocols::evm::types::EthAddress(evm_address), None)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        // Format response
+        let balance_om = format_units(balance, 18);
+        let mut response = format!("🔍 **Native EVM Balance**\n\n");
+        response.push_str(&format!("**Cosmos Address:** `{}`\n", cosmos_addr));
+        response.push_str(&format!("**EVM Address:** `{}`\n", evm_addr));
+        response.push_str(&format!("**Balance:** {} OM\n", balance_om));
+
+        Ok(response)
+    }
+
+    /// Get ERC-20 token balance
+    #[cfg(feature = "evm")]
+    pub async fn get_erc20_balance(
+        &self,
+        token_address: &str,
+        wallet_address: Option<String>,
+    ) -> McpResult<String> {
+        let (_, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+
+        // Get EVM client
+        let network_config = self.get_default_network_config().await?;
+        let evm_rpc_url = network_config
+            .evm_rpc_url
+            .as_ref()
+            .ok_or_else(|| McpServerError::InvalidArguments("EVM RPC URL not configured".to_string()))?;
+        let evm_chain_id = network_config
+            .evm_chain_id
+            .ok_or_else(|| McpServerError::InvalidArguments("EVM chain ID not configured".to_string()))?;
+
+        let evm_client = crate::protocols::evm::client::EvmClient::new(evm_rpc_url, evm_chain_id)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+
+        // Parse addresses
+        let token_addr = alloy_primitives::Address::from_str(token_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid token address: {}", e))
+        })?;
+        let wallet_addr = alloy_primitives::Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+
+        // Use existing ERC-20 helper
+        let erc20 = evm_client.erc20(token_addr);
+
+        // Query token info and balance
+        let balance = erc20
+            .balance_of(wallet_addr)
+            .await
+            .map_err(|e| McpServerError::Sdk(e))?;
+        let symbol = erc20
+            .symbol()
+            .await
+            .unwrap_or_else(|_| "UNKNOWN".to_string());
+        let decimals = erc20.decimals().await.unwrap_or(18);
+
+        // Format response
+        let balance_formatted = format_units(balance, decimals);
+        let mut response = format!("🪙 **ERC-20 Token Balance**\n\n");
+        response.push_str(&format!("**Token Address:** `{}`\n", token_address));
+        response.push_str(&format!("**Symbol:** {}\n", symbol));
+        response.push_str(&format!("**Decimals:** {}\n", decimals));
+        response.push_str(&format!("**Balance:** {} {}\n", balance_formatted, symbol));
+
+        Ok(response)
+    }
+
+    /// Get all EVM balances (native + ERC-20 tokens)
+    #[cfg(feature = "evm")]
+    pub async fn get_all_evm_balances(
+        &self,
+        wallet_address: Option<String>,
+        token_addresses: Option<Vec<String>>,
+    ) -> McpResult<String> {
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+
+        let mut response = format!("📊 **All EVM Balances**\n\n");
+        response.push_str(&format!("**Cosmos Address:** `{}`\n", cosmos_addr));
+        response.push_str(&format!("**EVM Address:** `{}`\n", evm_addr));
+        response.push_str("\n");
+
+        // Get native balance
+        let native_result = self.get_native_evm_balance(None).await?;
+        // Extract just the balance line
+        if let Some(balance_line) = native_result.lines().find(|l| l.contains("**Balance:**")) {
+            response.push_str("**Native (OM):** ");
+            response.push_str(&balance_line.replace("**Balance:** ", ""));
+            response.push_str("\n");
+        }
+
+        // Get ERC-20 balances if token addresses provided
+        if let Some(tokens) = token_addresses {
+            response.push_str("\n**ERC-20 Tokens:**\n");
+            for token_addr in tokens {
+                match self.get_erc20_balance(&token_addr, None).await {
+                    Ok(token_result) => {
+                        // Extract symbol and balance
+                        let lines: Vec<&str> = token_result.lines().collect();
+                        let symbol = lines
+                            .iter()
+                            .find(|l| l.contains("**Symbol:**"))
+                            .map(|l| l.replace("**Symbol:** ", ""))
+                            .unwrap_or_else(|| "UNKNOWN".to_string());
+                        let balance = lines
+                            .iter()
+                            .find(|l| l.contains("**Balance:**"))
+                            .map(|l| l.replace("**Balance:** ", ""))
+                            .unwrap_or_else(|| "0".to_string());
+                        response.push_str(&format!("- **{}:** {}\n", symbol, balance));
+                    }
+                    Err(e) => {
+                        response.push_str(&format!("- **{}:** Error: {}\n", token_addr, e));
+                    }
+                }
+            }
+        }
+
+        Ok(response)
+    }
+}
+
+/// Helper function to format token amounts with proper decimals
+#[cfg(feature = "evm")]
+fn format_units(value: alloy_primitives::U256, decimals: u8) -> String {
+    let divisor = alloy_primitives::U256::from(10).pow(alloy_primitives::U256::from(decimals));
+    let whole = value / divisor;
+    let remainder = value % divisor;
+
+    if remainder.is_zero() {
+        whole.to_string()
+    } else {
+        let remainder_str = remainder.to_string();
+        let padded_remainder = format!("{:0>width$}", remainder_str, width = decimals as usize);
+
+        // Remove trailing zeros
+        let trimmed = padded_remainder.trim_end_matches('0');
+        if trimmed.is_empty() {
+            whole.to_string()
+        } else {
+            format!("{}.{}", whole, trimmed)
+        }
+    }
 }
 
 impl Default for McpSdkAdapter {
@@ -3889,5 +4937,37 @@ mod tests {
         assert_eq!(cache_total, 0);
         assert!(pool_stats.is_empty());
         assert!(adapter.health_check_handle.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "evm")]
+    fn test_format_units() {
+        // Test whole numbers
+        let value = alloy_primitives::U256::from(1_000_000_000_000_000_000u128); // 1 ether
+        assert_eq!(format_units(value, 18), "1");
+
+        // Test decimals
+        let value = alloy_primitives::U256::from(1_500_000_000_000_000_000u128); // 1.5 ether
+        assert_eq!(format_units(value, 18), "1.5");
+
+        // Test trailing zeros removal
+        let value = alloy_primitives::U256::from(1_200_000_000_000_000_000u128); // 1.2 ether
+        assert_eq!(format_units(value, 18), "1.2");
+
+        // Test small decimals
+        let value = alloy_primitives::U256::from(1_230_456_789_012_345_678u128); // 1.230456789012345678 ether
+        assert_eq!(format_units(value, 18), "1.230456789012345678");
+
+        // Test zero
+        let value = alloy_primitives::U256::from(0u128);
+        assert_eq!(format_units(value, 18), "0");
+
+        // Test different decimals (6 for USDC)
+        let value = alloy_primitives::U256::from(1_500_000u128); // 1.5 USDC
+        assert_eq!(format_units(value, 6), "1.5");
+
+        // Test very small amounts
+        let value = alloy_primitives::U256::from(1u128); // 0.000000000000000001 ether
+        assert_eq!(format_units(value, 18), "0.000000000000000001");
     }
 }

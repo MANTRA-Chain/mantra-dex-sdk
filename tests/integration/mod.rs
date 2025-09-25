@@ -4,5 +4,7 @@
 
 pub mod basic_validation;
 pub mod claimdrop;
+#[cfg(feature = "evm")]
+pub mod evm;
 pub mod skip;
 pub mod cross_protocol;

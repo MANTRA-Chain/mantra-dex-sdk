@@ -13,6 +13,9 @@ pub enum ProtocolId {
     Dex,
     /// ClaimDrop protocol for reward distribution
     ClaimDrop,
+    /// EVM protocol for Ethereum Virtual Machine compatibility
+    #[cfg(feature = "evm")]
+    Evm,
     /// Skip protocol for cross-chain operations
     Skip,
 }
@@ -22,6 +25,8 @@ impl std::fmt::Display for ProtocolId {
         match self {
             ProtocolId::Dex => write!(f, "dex"),
             ProtocolId::ClaimDrop => write!(f, "claimdrop"),
+            #[cfg(feature = "evm")]
+            ProtocolId::Evm => write!(f, "evm"),
             ProtocolId::Skip => write!(f, "skip"),
         }
     }
@@ -34,6 +39,8 @@ impl std::str::FromStr for ProtocolId {
         match s.to_lowercase().as_str() {
             "dex" => Ok(ProtocolId::Dex),
             "claimdrop" => Ok(ProtocolId::ClaimDrop),
+            #[cfg(feature = "evm")]
+            "evm" => Ok(ProtocolId::Evm),
             "skip" => Ok(ProtocolId::Skip),
             _ => Err(Error::Config(format!("Unknown protocol: {}", s))),
         }
@@ -566,6 +573,17 @@ impl ProtocolRegistry {
         skip_config.rate_limits.request_timeout_secs = 60; // Longer timeout for cross-chain
         skip_config.health.check_interval_secs = 60; // More frequent health checks
         self.protocols.insert(ProtocolId::Skip, skip_config);
+
+        // EVM Protocol - Ethereum Virtual Machine compatibility, enabled by default when feature is available
+        #[cfg(feature = "evm")]
+        {
+            let mut evm_config = ProtocolConfig::new(ProtocolId::Evm, true);
+            evm_config.priority = 500;
+            evm_config.rate_limits.requests_per_minute = 50; // Moderate rate limiting for EVM calls
+            evm_config.rate_limits.request_timeout_secs = 30; // Standard timeout
+            evm_config.health.check_interval_secs = 30; // Health checks for RPC connectivity
+            self.protocols.insert(ProtocolId::Evm, evm_config);
+        }
 
         Ok(())
     }

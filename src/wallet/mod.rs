@@ -9,11 +9,18 @@ use cosmrs::{
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+#[cfg(feature = "evm")]
+use tiny_keccak::{Hasher, Keccak};
+
 use crate::error::Error;
 
 // Storage module for wallet persistence
 pub mod storage;
 pub use storage::*;
+
+// MultiVM wallet for Cosmos and EVM support
+pub mod multivm;
+pub use multivm::MultiVMWallet;
 
 /// HD Path prefix for Cosmos chains (BIP-44)
 const HD_PATH_PREFIX: &str = "m/44'/118'/0'/0/";
@@ -209,5 +216,75 @@ impl MantraWallet {
             .map_err(|e| Error::Config(format!("Failed to load network constants: {}", e)))?;
 
         Ok(constants.default_gas_price * constants.default_gas_adjustment)
+    }
+
+    /// Derive Ethereum address from the wallet's public key
+    ///
+    /// Uses the same secp256k1 key as Cosmos but derives the Ethereum address
+    /// by taking the Keccak-256 hash of the public key (without 0x04 prefix)
+    /// and taking the last 20 bytes.
+    #[cfg(feature = "evm")]
+    pub fn ethereum_address(&self) -> Result<alloy_primitives::Address, Error> {
+        use k256::ecdsa::{SigningKey as K256SigningKey, VerifyingKey};
+        use k256::elliptic_curve::sec1::ToEncodedPoint;
+
+        // The signing_account is a secp256k1 key wrapper - we need to extract the raw key
+        // We'll recreate it from the same mnemonic/derivation for now
+        // In production, we'd want to expose the raw key bytes from cosmrs
+
+        // Get the compressed public key first to verify we have the right key
+        let compressed_pubkey = self.signing_account.public_key();
+        let compressed_bytes = compressed_pubkey.to_bytes();
+
+        // Create a k256 verifying key from the compressed public key
+        // The compressed key is 33 bytes (0x02/0x03 prefix + 32 bytes)
+        let verifying_key = VerifyingKey::from_sec1_bytes(&compressed_bytes)
+            .map_err(|e| Error::Wallet(format!("Failed to create verifying key: {}", e)))?;
+
+        // Encode as uncompressed point
+        let point = verifying_key.to_encoded_point(false); // false = uncompressed
+        let pubkey_bytes = point.as_bytes();
+
+        // The uncompressed key should be 65 bytes (0x04 prefix + 64 bytes)
+        if pubkey_bytes.len() != 65 || pubkey_bytes[0] != 0x04 {
+            return Err(Error::Wallet(
+                "Invalid public key format for Ethereum address derivation".to_string(),
+            ));
+        }
+
+        let pubkey_without_prefix = &pubkey_bytes[1..]; // Skip the 0x04 prefix
+
+        // Compute Keccak-256 hash
+        let mut hasher = Keccak::v256();
+        hasher.update(pubkey_without_prefix);
+        let mut hash = [0u8; 32];
+        hasher.finalize(&mut hash);
+
+        // Take the last 20 bytes
+        let mut address_bytes = [0u8; 20];
+        address_bytes.copy_from_slice(&hash[12..32]);
+
+        Ok(alloy_primitives::Address::from(address_bytes))
+    }
+
+    /// Sign an Ethereum transaction (EIP-155 compatible)
+    ///
+    /// Note: This is a placeholder. Full EIP-155 signing implementation
+    /// would require additional parameters and proper transaction serialization.
+    #[cfg(feature = "evm")]
+    pub fn sign_ethereum_transaction(
+        &self,
+        _tx_hash: &[u8; 32],
+    ) -> Result<alloy_primitives::Signature, Error> {
+        // TODO: Implement proper EIP-155 transaction signing
+        // This would involve:
+        // 1. Serializing the transaction according to EIP-155
+        // 2. Computing the Keccak-256 hash
+        // 3. Signing with the secp256k1 key
+        // 4. Adjusting recovery id for Ethereum format
+
+        Err(Error::Wallet(
+            "Ethereum transaction signing not yet implemented".to_string(),
+        ))
     }
 }
