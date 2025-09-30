@@ -7,13 +7,24 @@ use crate::error::Error;
 /// address handling, transaction types, and error definitions.
 
 #[cfg(feature = "evm")]
-use alloy_primitives::{Address, B256, U256};
+use alloy_eips::eip2930::AccessList;
+#[cfg(feature = "evm")]
+use alloy_primitives::{Address, Bytes, ChainId, B256, U256};
+#[cfg(feature = "evm")]
+use alloy_rpc_types_eth::transaction::{
+    TransactionInput, TransactionRequest as RpcTransactionRequest,
+};
 #[cfg(feature = "evm")]
 use alloy_sol_types::SolCall;
 #[cfg(feature = "evm")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "evm")]
+use std::convert::TryInto;
+#[cfg(feature = "evm")]
 use std::str::FromStr;
+
+#[cfg(feature = "evm")]
+use super::tx::Eip1559Transaction;
 
 /// Ethereum address wrapper with EIP-55 checksum validation
 #[cfg(feature = "evm")]
@@ -115,7 +126,13 @@ pub struct EvmTransactionRequest {
     /// Transaction data
     pub data: Vec<u8>,
     /// Chain ID for EIP-155 replay protection
-    pub chain_id: u64,
+    pub chain_id: ChainId,
+    /// Explicit nonce to use
+    pub nonce: Option<u64>,
+    /// Optional access list
+    pub access_list: AccessList,
+    /// Optional sender address
+    pub from: Option<EthAddress>,
 }
 
 #[cfg(feature = "evm")]
@@ -130,6 +147,9 @@ impl EvmTransactionRequest {
             max_priority_fee_per_gas: None,
             data: Vec::new(),
             chain_id,
+            nonce: None,
+            access_list: AccessList::default(),
+            from: None,
         }
     }
 
@@ -162,6 +182,133 @@ impl EvmTransactionRequest {
     pub fn data(mut self, data: Vec<u8>) -> Self {
         self.data = data;
         self
+    }
+
+    /// Set the nonce for the transaction
+    pub fn nonce(mut self, nonce: u64) -> Self {
+        self.nonce = Some(nonce);
+        self
+    }
+
+    /// Attach an access list
+    pub fn access_list(mut self, list: AccessList) -> Self {
+        self.access_list = list;
+        self
+    }
+
+    /// Set the sender address
+    pub fn from(mut self, from: EthAddress) -> Self {
+        self.from = Some(from);
+        self
+    }
+
+    /// Convert to an RPC transaction request (optional override for sender).
+    pub fn to_rpc_request(&self, override_from: Option<EthAddress>) -> RpcTransactionRequest {
+        let mut request = RpcTransactionRequest::default();
+
+        if let Some(from) = override_from.or_else(|| self.from.clone()) {
+            request = request.from(from.0);
+        }
+
+        if let Some(to) = self.to.clone() {
+            request = request.to(to.0);
+        }
+
+        request = request.value(self.value);
+
+        if let Some(gas) = self.gas_limit {
+            request = request.gas_limit(gas);
+        }
+
+        if let Some(max_fee) = self.max_fee_per_gas {
+            if let Ok(fee) = u128::try_from(max_fee) {
+                request = request.max_fee_per_gas(fee);
+            }
+        }
+
+        if let Some(priority) = self.max_priority_fee_per_gas {
+            if let Ok(tip) = u128::try_from(priority) {
+                request = request.max_priority_fee_per_gas(tip);
+            }
+        }
+
+        if let Some(nonce) = self.nonce {
+            request = request.nonce(nonce);
+        }
+
+        request.chain_id = Some(self.chain_id);
+
+        if !self.access_list.0.is_empty() {
+            request = request.access_list(self.access_list.clone());
+        }
+
+        if !self.data.is_empty() {
+            request.input = TransactionInput::from(self.data.clone());
+        }
+
+        request
+    }
+
+    /// Consume and produce an EIP-1559 transaction ready for signing
+    pub fn into_eip1559(self) -> Result<Eip1559Transaction, Error> {
+        let nonce = self
+            .nonce
+            .ok_or_else(|| Error::Config("Transaction nonce must be provided".to_string()))?;
+        let gas_limit = self
+            .gas_limit
+            .ok_or_else(|| Error::Config("Gas limit must be provided".to_string()))?;
+        let max_fee = self
+            .max_fee_per_gas
+            .ok_or_else(|| Error::Config("max_fee_per_gas must be provided".to_string()))?;
+        let max_priority = self.max_priority_fee_per_gas.ok_or_else(|| {
+            Error::Config("max_priority_fee_per_gas must be provided".to_string())
+        })?;
+
+        let max_fee: u128 = max_fee
+            .try_into()
+            .map_err(|_| Error::Config("max_fee_per_gas exceeds u128 range".to_string()))?;
+        let max_priority: u128 = max_priority.try_into().map_err(|_| {
+            Error::Config("max_priority_fee_per_gas exceeds u128 range".to_string())
+        })?;
+
+        let mut tx = Eip1559Transaction::new(self.chain_id, nonce)
+            .gas_limit(gas_limit)
+            .max_fee_per_gas(max_fee)
+            .max_priority_fee_per_gas(max_priority)
+            .value(self.value)
+            .data(Bytes::from(self.data))
+            .access_list(self.access_list);
+
+        if let Some(to) = self.to {
+            tx = tx.to(Some(to.0));
+        } else {
+            tx = tx.to(None);
+        }
+
+        Ok(tx)
+    }
+}
+
+#[cfg(feature = "evm")]
+impl From<&Eip1559Transaction> for EvmTransactionRequest {
+    fn from(tx: &Eip1559Transaction) -> Self {
+        let mut request = EvmTransactionRequest::new(tx.chain_id)
+            .value(tx.value)
+            .gas_limit(tx.gas_limit)
+            .eip1559_fees(
+                U256::from(tx.max_fee_per_gas),
+                U256::from(tx.max_priority_fee_per_gas),
+            )
+            .data(tx.data.clone().to_vec());
+
+        request.nonce = Some(tx.nonce);
+        request.access_list = tx.access_list.clone();
+
+        if let Some(to) = tx.to {
+            request = request.to(EthAddress(to));
+        }
+
+        request
     }
 }
 
@@ -249,6 +396,14 @@ impl From<EvmError> for Error {
     fn from(err: EvmError) -> Self {
         Error::Other(format!("EVM error: {}", err))
     }
+}
+
+#[cfg(feature = "evm")]
+#[derive(Debug, Clone)]
+pub struct Eip1559FeeSuggestion {
+    pub base_fee_per_gas: U256,
+    pub max_fee_per_gas: U256,
+    pub max_priority_fee_per_gas: U256,
 }
 
 /// Utility functions for EVM operations

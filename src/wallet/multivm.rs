@@ -1,8 +1,8 @@
 use crate::error::Error;
-use bip32::{DerivationPath, XPrv, Seed};
+use bip32::{DerivationPath, Seed, XPrv};
 use bip39::Mnemonic;
-use cosmrs::crypto::secp256k1::{SigningKey as CosmosSigningKey, Signature};
-use cosmrs::{AccountId, tx::SignDoc};
+use cosmrs::crypto::secp256k1::{Signature, SigningKey as CosmosSigningKey};
+use cosmrs::{tx::SignDoc, AccountId};
 use std::str::FromStr;
 
 /// HD Path for Cosmos chains (BIP-44)

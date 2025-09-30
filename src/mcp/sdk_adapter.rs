@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use chrono;
 use cosmwasm_std::{Coin, Decimal, Uint128};
 
+use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
@@ -19,7 +20,13 @@ use tracing::{debug, error, info, warn};
 use crate::client::MantraClient;
 use crate::config::MantraNetworkConfig;
 use crate::protocols::dex::MantraDexClient;
+use crate::protocols::evm::client::EvmClient;
+use crate::protocols::evm::types::EthAddress;
+use crate::protocols::evm::erc20::Erc20 as SdkErc20;
 use crate::wallet::{MantraWallet, MultiVMWallet, WalletInfo};
+use alloy_primitives::{Address, U256};
+
+use super::erc20_registry::{Erc20Registry, Erc20TokenInfo, TokenKey, TokenSource};
 
 use super::server::{McpResult, McpServerError};
 
@@ -270,11 +277,21 @@ pub struct McpSdkAdapter {
     active_wallet_instance: Arc<Mutex<Option<MantraWallet>>>,
     /// Cache for wallet address to derivation index mappings
     wallet_derivation_cache: Arc<RwLock<HashMap<String, u32>>>,
+    /// ERC-20 metadata registry and cache
+    erc20_registry: Arc<RwLock<Erc20Registry>>,
 }
 
 impl McpSdkAdapter {
     /// Create a new MCP SDK adapter with connection pooling
     pub fn new(config: ConnectionPoolConfig) -> Self {
+        let registry = match Erc20Registry::load_default() {
+            Ok(registry) => registry,
+            Err(err) => {
+                warn!("Failed to load ERC-20 registry: {}", err);
+                Erc20Registry::default()
+            }
+        };
+
         let adapter = Self {
             connection_pools: Arc::new(RwLock::new(HashMap::new())),
             cache_ttl: Duration::from_secs(config.connection_ttl_secs),
@@ -285,6 +302,7 @@ impl McpSdkAdapter {
             active_wallet: Arc::new(Mutex::new(None)),
             active_wallet_instance: Arc::new(Mutex::new(None)),
             wallet_derivation_cache: Arc::new(RwLock::new(HashMap::new())),
+            erc20_registry: Arc::new(RwLock::new(registry)),
         };
 
         adapter
@@ -322,6 +340,116 @@ impl McpSdkAdapter {
             handle.abort();
             debug!("Stopped connection pool health checks");
         }
+    }
+
+    fn erc20_registry(&self) -> Arc<RwLock<Erc20Registry>> {
+        Arc::clone(&self.erc20_registry)
+    }
+
+    pub async fn list_registry_tokens(&self, chain_id: u64) -> Vec<Erc20TokenInfo> {
+        let registry_arc = self.erc20_registry();
+        let registry = registry_arc.read().await;
+        registry.list_for_chain(chain_id)
+    }
+
+    pub async fn get_registry_token(
+        &self,
+        chain_id: u64,
+        address: Address,
+    ) -> Option<Erc20TokenInfo> {
+        let registry_arc = self.erc20_registry();
+        let registry = registry_arc.read().await;
+        registry.get(chain_id, &address).cloned()
+    }
+
+    pub async fn add_custom_token(&self, info: Erc20TokenInfo) -> McpResult<()> {
+        let registry = self.erc20_registry();
+        let mut guard = registry.write().await;
+        guard
+            .upsert_custom(info)
+            .map_err(|e| McpServerError::Internal(e.to_string()))
+    }
+
+    pub async fn remove_custom_token(&self, chain_id: u64, address: Address) -> McpResult<bool> {
+        let registry = self.erc20_registry();
+        let mut guard = registry.write().await;
+        guard
+            .remove_custom(chain_id, &address)
+            .map_err(|e| McpServerError::Internal(e.to_string()))
+    }
+
+    async fn ensure_token_metadata(
+        &self,
+        evm_client: &EvmClient,
+        chain_id: u64,
+        token_address: Address,
+    ) -> McpResult<Erc20TokenInfo> {
+        {
+            let registry_arc = self.erc20_registry();
+            let registry = registry_arc.read().await;
+            if let Some(info) = registry.get(chain_id, &token_address) {
+                if !info.needs_refresh(registry.ttl()) {
+                    return Ok(info.clone());
+                }
+            }
+        }
+
+        let registry = self.erc20_registry();
+        let mut guard = registry.write().await;
+        let existing = guard.get(chain_id, &token_address).cloned();
+        drop(guard);
+
+        let erc20 = SdkErc20::new(evm_client.clone(), EthAddress(token_address));
+        let symbol = erc20
+            .symbol()
+            .await
+            .map_err(McpServerError::Sdk)?;
+        let name = match erc20.name().await {
+            Ok(value) => Some(value),
+            Err(err) => {
+                debug!("Failed to fetch token name: {}", err);
+                None
+            }
+        };
+        let decimals = erc20.decimals().await.unwrap_or(18);
+
+        let source = existing
+            .as_ref()
+            .map(|info| info.source.clone())
+            .unwrap_or(TokenSource::Discovered);
+
+        let mut info = Erc20TokenInfo {
+            address: token_address,
+            symbol,
+            name,
+            decimals,
+            chain_id,
+            last_refreshed: Some(Instant::now()),
+            source,
+        };
+
+        let registry = self.erc20_registry();
+        let mut guard = registry.write().await;
+        guard.upsert_runtime(info.clone());
+        Ok(info)
+    }
+
+    async fn get_evm_client(&self) -> McpResult<(EvmClient, u64)> {
+        let network_config = self.get_default_network_config().await?;
+
+        let evm_rpc_url = network_config
+            .evm_rpc_url
+            .as_ref()
+            .ok_or_else(|| McpServerError::InvalidArguments("EVM RPC URL not configured".to_string()))?;
+        let chain_id = network_config
+            .evm_chain_id
+            .ok_or_else(|| McpServerError::InvalidArguments("EVM chain ID not configured".to_string()))?;
+
+        let client = EvmClient::new(evm_rpc_url, chain_id)
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        Ok((client, chain_id))
     }
 
     /// Get a client connection for the specified network
@@ -669,7 +797,10 @@ impl McpSdkAdapter {
 
     /// Get a MultiVM wallet instance by address (for EVM operations)
     /// This creates a wallet with both Cosmos and EVM keys derived from the same mnemonic
-    pub async fn get_multivm_wallet_by_address(&self, address: &str) -> McpResult<Option<MultiVMWallet>> {
+    pub async fn get_multivm_wallet_by_address(
+        &self,
+        address: &str,
+    ) -> McpResult<Option<MultiVMWallet>> {
         use std::env;
 
         // Check if wallet exists in our collection
@@ -716,7 +847,10 @@ impl McpSdkAdapter {
         }
 
         // Search for the correct derivation index
-        debug!("Performing derivation search for MultiVM wallet with address: {}", address);
+        debug!(
+            "Performing derivation search for MultiVM wallet with address: {}",
+            address
+        );
         let max_index = self.config.max_wallet_derivation_index;
         for index in 0..=max_index {
             match MultiVMWallet::from_mnemonic(&mnemonic, index) {
@@ -1647,10 +1781,9 @@ impl McpSdkAdapter {
             McpServerError::Internal(format!("Failed to load environment config: {}", e))
         })?;
 
-        let network_config =
-            MantraNetworkConfig::from_env_config(&env_config).map_err(|e| {
-                McpServerError::Internal(format!("Failed to create network config: {}", e))
-            })?;
+        let network_config = MantraNetworkConfig::from_env_config(&env_config).map_err(|e| {
+            McpServerError::Internal(format!("Failed to create network config: {}", e))
+        })?;
         Ok(network_config)
     }
 
@@ -4658,13 +4791,12 @@ impl McpSdkAdapter {
 
         // Get EVM client
         let network_config = self.get_default_network_config().await?;
-        let evm_rpc_url = network_config
-            .evm_rpc_url
-            .as_ref()
-            .ok_or_else(|| McpServerError::InvalidArguments("EVM RPC URL not configured".to_string()))?;
-        let evm_chain_id = network_config
-            .evm_chain_id
-            .ok_or_else(|| McpServerError::InvalidArguments("EVM chain ID not configured".to_string()))?;
+        let evm_rpc_url = network_config.evm_rpc_url.as_ref().ok_or_else(|| {
+            McpServerError::InvalidArguments("EVM RPC URL not configured".to_string())
+        })?;
+        let evm_chain_id = network_config.evm_chain_id.ok_or_else(|| {
+            McpServerError::InvalidArguments("EVM chain ID not configured".to_string())
+        })?;
 
         let evm_client = crate::protocols::evm::client::EvmClient::new(evm_rpc_url, evm_chain_id)
             .await
@@ -4695,54 +4827,34 @@ impl McpSdkAdapter {
         &self,
         token_address: &str,
         wallet_address: Option<String>,
-    ) -> McpResult<String> {
+    ) -> McpResult<Erc20BalanceResponse> {
         let (_, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let wallet_addr = Address::from_str(&evm_addr)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e)))?;
 
-        // Get EVM client
-        let network_config = self.get_default_network_config().await?;
-        let evm_rpc_url = network_config
-            .evm_rpc_url
-            .as_ref()
-            .ok_or_else(|| McpServerError::InvalidArguments("EVM RPC URL not configured".to_string()))?;
-        let evm_chain_id = network_config
-            .evm_chain_id
-            .ok_or_else(|| McpServerError::InvalidArguments("EVM chain ID not configured".to_string()))?;
+        let (evm_client, chain_id) = self.get_evm_client().await?;
 
-        let evm_client = crate::protocols::evm::client::EvmClient::new(evm_rpc_url, evm_chain_id)
-            .await
-            .map_err(|e| McpServerError::Sdk(e))?;
+        let token_addr = Address::from_str(token_address)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid token address: {}", e)))?;
 
-        // Parse addresses
-        let token_addr = alloy_primitives::Address::from_str(token_address).map_err(|e| {
-            McpServerError::InvalidArguments(format!("Invalid token address: {}", e))
-        })?;
-        let wallet_addr = alloy_primitives::Address::from_str(&evm_addr).map_err(|e| {
-            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
-        })?;
+        let metadata = self
+            .ensure_token_metadata(&evm_client, chain_id, token_addr)
+            .await?;
 
-        // Use existing ERC-20 helper
-        let erc20 = evm_client.erc20(token_addr);
-
-        // Query token info and balance
+        let erc20 = SdkErc20::new(evm_client.clone(), EthAddress(token_addr));
         let balance = erc20
-            .balance_of(wallet_addr)
+            .balance_of(EthAddress(wallet_addr))
             .await
-            .map_err(|e| McpServerError::Sdk(e))?;
-        let symbol = erc20
-            .symbol()
-            .await
-            .unwrap_or_else(|_| "UNKNOWN".to_string());
-        let decimals = erc20.decimals().await.unwrap_or(18);
+            .map_err(McpServerError::Sdk)?;
 
-        // Format response
-        let balance_formatted = format_units(balance, decimals);
-        let mut response = format!("🪙 **ERC-20 Token Balance**\n\n");
-        response.push_str(&format!("**Token Address:** `{}`\n", token_address));
-        response.push_str(&format!("**Symbol:** {}\n", symbol));
-        response.push_str(&format!("**Decimals:** {}\n", decimals));
-        response.push_str(&format!("**Balance:** {} {}\n", balance_formatted, symbol));
+        let formatted = format_units(balance, metadata.decimals);
 
-        Ok(response)
+        Ok(Erc20BalanceResponse {
+            token: token_view(&metadata),
+            wallet_address: format!("{:#x}", wallet_addr),
+            raw_balance: balance.to_string(),
+            formatted_balance: formatted,
+        })
     }
 
     /// Get all EVM balances (native + ERC-20 tokens)
@@ -4751,51 +4863,54 @@ impl McpSdkAdapter {
         &self,
         wallet_address: Option<String>,
         token_addresses: Option<Vec<String>>,
-    ) -> McpResult<String> {
+    ) -> McpResult<EvmBalancesResponse> {
         let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let wallet_addr = Address::from_str(&evm_addr)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e)))?;
 
-        let mut response = format!("📊 **All EVM Balances**\n\n");
-        response.push_str(&format!("**Cosmos Address:** `{}`\n", cosmos_addr));
-        response.push_str(&format!("**EVM Address:** `{}`\n", evm_addr));
-        response.push_str("\n");
+        let (evm_client, chain_id) = self.get_evm_client().await?;
 
-        // Get native balance
-        let native_result = self.get_native_evm_balance(None).await?;
-        // Extract just the balance line
-        if let Some(balance_line) = native_result.lines().find(|l| l.contains("**Balance:**")) {
-            response.push_str("**Native (OM):** ");
-            response.push_str(&balance_line.replace("**Balance:** ", ""));
-            response.push_str("\n");
-        }
+        let native_balance = evm_client
+            .get_balance(crate::protocols::evm::types::EthAddress(wallet_addr), None)
+            .await
+            .map_err(McpServerError::Sdk)?;
+        let native_formatted = format_units(native_balance, 18);
 
-        // Get ERC-20 balances if token addresses provided
-        if let Some(tokens) = token_addresses {
-            response.push_str("\n**ERC-20 Tokens:**\n");
-            for token_addr in tokens {
-                match self.get_erc20_balance(&token_addr, None).await {
-                    Ok(token_result) => {
-                        // Extract symbol and balance
-                        let lines: Vec<&str> = token_result.lines().collect();
-                        let symbol = lines
-                            .iter()
-                            .find(|l| l.contains("**Symbol:**"))
-                            .map(|l| l.replace("**Symbol:** ", ""))
-                            .unwrap_or_else(|| "UNKNOWN".to_string());
-                        let balance = lines
-                            .iter()
-                            .find(|l| l.contains("**Balance:**"))
-                            .map(|l| l.replace("**Balance:** ", ""))
-                            .unwrap_or_else(|| "0".to_string());
-                        response.push_str(&format!("- **{}:** {}\n", symbol, balance));
-                    }
-                    Err(e) => {
-                        response.push_str(&format!("- **{}:** Error: {}\n", token_addr, e));
-                    }
-                }
+        let mut tokens = Vec::new();
+        if let Some(addresses) = token_addresses {
+            for token_addr in addresses {
+                let addr = Address::from_str(&token_addr).map_err(|e| {
+                    McpServerError::InvalidArguments(format!(
+                        "Invalid token address '{}': {}",
+                        token_addr, e
+                    ))
+                })?;
+
+                let metadata = self
+                    .ensure_token_metadata(&evm_client, chain_id, addr)
+                    .await?;
+
+                let erc20 = SdkErc20::new(evm_client.clone(), EthAddress(addr));
+                let balance = erc20
+                    .balance_of(EthAddress(wallet_addr))
+                    .await
+                    .map_err(McpServerError::Sdk)?;
+
+                tokens.push(Erc20BalanceResponse {
+                    token: token_view(&metadata),
+                    wallet_address: format!("{:#x}", wallet_addr),
+                    raw_balance: balance.to_string(),
+                    formatted_balance: format_units(balance, metadata.decimals),
+                });
             }
         }
 
-        Ok(response)
+        Ok(EvmBalancesResponse {
+            cosmos_address: cosmos_addr,
+            evm_address: evm_addr,
+            native_balance: native_formatted,
+            tokens,
+        })
     }
 }
 
@@ -4819,6 +4934,52 @@ fn format_units(value: alloy_primitives::U256, decimals: u8) -> String {
         } else {
             format!("{}.{}", whole, trimmed)
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Erc20TokenView {
+    pub chain_id: u64,
+    pub address: String,
+    pub symbol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub decimals: u8,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Erc20BalanceResponse {
+    pub token: Erc20TokenView,
+    pub wallet_address: String,
+    pub raw_balance: String,
+    pub formatted_balance: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EvmBalancesResponse {
+    pub cosmos_address: String,
+    pub evm_address: String,
+    pub native_balance: String,
+    pub tokens: Vec<Erc20BalanceResponse>,
+}
+
+fn token_source_label(source: &TokenSource) -> &'static str {
+    match source {
+        TokenSource::BuiltIn => "builtin",
+        TokenSource::Custom => "custom",
+        TokenSource::Discovered => "discovered",
+    }
+}
+
+fn token_view(info: &Erc20TokenInfo) -> Erc20TokenView {
+    Erc20TokenView {
+        chain_id: info.chain_id,
+        address: info.checksummed_address(),
+        symbol: info.symbol.clone(),
+        name: info.name.clone(),
+        decimals: info.decimals,
+        source: token_source_label(&info.source).to_string(),
     }
 }
 

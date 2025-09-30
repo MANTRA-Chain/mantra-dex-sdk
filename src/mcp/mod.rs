@@ -45,6 +45,9 @@ pub mod server;
 // SDK integration layer
 pub mod sdk_adapter;
 
+// ERC-20 registry for metadata caching
+pub mod erc20_registry;
+
 // MCP client wrapper
 pub mod client_wrapper;
 

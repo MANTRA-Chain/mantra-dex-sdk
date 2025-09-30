@@ -43,6 +43,8 @@ pub mod erc20;
 #[cfg(feature = "evm")]
 pub mod erc721;
 #[cfg(feature = "evm")]
+pub mod tx;
+#[cfg(feature = "evm")]
 pub mod types;
 
 #[cfg(feature = "evm")]

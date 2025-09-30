@@ -1,7 +1,7 @@
 use bip32::DerivationPath;
 use bip39::Mnemonic;
 use cosmrs::{
-    crypto::secp256k1::{Signature, SigningKey},
+    crypto::secp256k1::{Signature as CosmosSignature, SigningKey},
     crypto::PublicKey,
     tx::{BodyBuilder, Fee, Raw, SignDoc, SignerInfo},
     AccountId, Coin as CosmosCoin, Denom,
@@ -9,6 +9,14 @@ use cosmrs::{
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+#[cfg(feature = "evm")]
+use crate::protocols::evm::tx::{Eip1559Transaction, SignedEip1559Transaction};
+#[cfg(feature = "evm")]
+use alloy_primitives::{Signature, B256};
+#[cfg(feature = "evm")]
+use k256::ecdsa::SigningKey as K256SigningKey;
+#[cfg(feature = "evm")]
+use sha3::{digest::FixedOutput, Digest, Keccak256};
 #[cfg(feature = "evm")]
 use tiny_keccak::{Hasher, Keccak};
 
@@ -31,6 +39,9 @@ pub struct MantraWallet {
     signing_account: cosmrs::crypto::secp256k1::SigningKey,
     /// The account prefix (mantra)
     account_prefix: String,
+    /// Local secp256k1 signer for EVM interactions
+    #[cfg(feature = "evm")]
+    eth_signer: K256SigningKey,
 }
 
 // Note: MantraWallet intentionally does not implement Clone for security reasons
@@ -57,6 +68,15 @@ pub struct WalletInfo {
     pub public_key: String,
 }
 
+#[cfg(feature = "evm")]
+#[derive(Debug, Clone)]
+pub struct Eip712Signature {
+    /// Computed signature (v, r, s encoded)
+    pub signature: Signature,
+    /// Digest that was signed (\x19\x01 || domain || struct hash)
+    pub digest: B256,
+}
+
 impl MantraWallet {
     /// Create a new wallet from a mnemonic
     pub fn from_mnemonic(mnemonic: &str, account_index: u32) -> Result<Self, Error> {
@@ -76,10 +96,15 @@ impl MantraWallet {
         let derived_key_bytes = derived_key.to_bytes();
         let signing_account = SigningKey::from_slice(&derived_key_bytes)
             .map_err(|e| Error::Wallet(format!("Failed to create signing account: {}", e)))?;
+        #[cfg(feature = "evm")]
+        let eth_signer = K256SigningKey::from_slice(&derived_key_bytes)
+            .map_err(|e| Error::Wallet(format!("Failed to create EVM signing key: {}", e)))?;
 
         Ok(Self {
             signing_account,
             account_prefix: "mantra".to_string(),
+            #[cfg(feature = "evm")]
+            eth_signer,
         })
     }
 
@@ -119,7 +144,7 @@ impl MantraWallet {
     }
 
     /// Sign a transaction doc
-    pub fn sign_doc(&self, sign_doc: SignDoc) -> Result<Signature, Error> {
+    pub fn sign_doc(&self, sign_doc: SignDoc) -> Result<CosmosSignature, Error> {
         let sign_doc_bytes = sign_doc
             .into_bytes()
             .map_err(|e| Error::Wallet(format!("Failed to convert sign doc to bytes: {}", e)))?;
@@ -225,44 +250,27 @@ impl MantraWallet {
     /// and taking the last 20 bytes.
     #[cfg(feature = "evm")]
     pub fn ethereum_address(&self) -> Result<alloy_primitives::Address, Error> {
-        use k256::ecdsa::{SigningKey as K256SigningKey, VerifyingKey};
         use k256::elliptic_curve::sec1::ToEncodedPoint;
 
-        // The signing_account is a secp256k1 key wrapper - we need to extract the raw key
-        // We'll recreate it from the same mnemonic/derivation for now
-        // In production, we'd want to expose the raw key bytes from cosmrs
-
-        // Get the compressed public key first to verify we have the right key
-        let compressed_pubkey = self.signing_account.public_key();
-        let compressed_bytes = compressed_pubkey.to_bytes();
-
-        // Create a k256 verifying key from the compressed public key
-        // The compressed key is 33 bytes (0x02/0x03 prefix + 32 bytes)
-        let verifying_key = VerifyingKey::from_sec1_bytes(&compressed_bytes)
-            .map_err(|e| Error::Wallet(format!("Failed to create verifying key: {}", e)))?;
-
-        // Encode as uncompressed point
-        let point = verifying_key.to_encoded_point(false); // false = uncompressed
+        let verifying_key = self.eth_signer.verifying_key();
+        let point = verifying_key.to_encoded_point(false);
         let pubkey_bytes = point.as_bytes();
 
-        // The uncompressed key should be 65 bytes (0x04 prefix + 64 bytes)
         if pubkey_bytes.len() != 65 || pubkey_bytes[0] != 0x04 {
             return Err(Error::Wallet(
                 "Invalid public key format for Ethereum address derivation".to_string(),
             ));
         }
 
-        let pubkey_without_prefix = &pubkey_bytes[1..]; // Skip the 0x04 prefix
+        let pubkey_without_prefix = &pubkey_bytes[1..];
 
-        // Compute Keccak-256 hash
         let mut hasher = Keccak::v256();
         hasher.update(pubkey_without_prefix);
         let mut hash = [0u8; 32];
         hasher.finalize(&mut hash);
 
-        // Take the last 20 bytes
         let mut address_bytes = [0u8; 20];
-        address_bytes.copy_from_slice(&hash[12..32]);
+        address_bytes.copy_from_slice(&hash[12..]);
 
         Ok(alloy_primitives::Address::from(address_bytes))
     }
@@ -272,19 +280,57 @@ impl MantraWallet {
     /// Note: This is a placeholder. Full EIP-155 signing implementation
     /// would require additional parameters and proper transaction serialization.
     #[cfg(feature = "evm")]
+    fn sign_with_keccak<F>(&self, builder: F) -> Result<(Signature, B256), Error>
+    where
+        F: FnOnce(&mut Keccak256),
+    {
+        let mut digest = Keccak256::new();
+        builder(&mut digest);
+
+        let hash_bytes: [u8; 32] = digest.clone().finalize_fixed().into();
+
+        let (sig, recid) = self
+            .eth_signer
+            .sign_digest_recoverable(digest)
+            .map_err(|e| Error::Wallet(format!("Failed to sign digest: {}", e)))?;
+
+        let signature = Signature::from((sig, recid));
+        Ok((signature, B256::from(hash_bytes)))
+    }
+
+    /// Sign an EIP-1559 transaction and return the full signed payload.
+    #[cfg(feature = "evm")]
+    pub fn sign_eip1559(&self, tx: &Eip1559Transaction) -> Result<SignedEip1559Transaction, Error> {
+        let encoded = tx.encoded_for_signing();
+        let (signature, _) = self.sign_with_keccak(|d| d.update(&encoded))?;
+        let signed = tx.clone().into_signed(signature);
+        let raw = tx.encode_signed(signed.signature());
+        Ok(SignedEip1559Transaction::new(signed, raw))
+    }
+
+    /// Sign EIP-712 typed data and return the signature plus digest.
+    #[cfg(feature = "evm")]
+    pub fn sign_eip712(
+        &self,
+        domain_separator: B256,
+        struct_hash: B256,
+    ) -> Result<Eip712Signature, Error> {
+        let (signature, digest) = self.sign_with_keccak(|d| {
+            d.update(&[0x19, 0x01]);
+            d.update(domain_separator.as_slice());
+            d.update(struct_hash.as_slice());
+        })?;
+
+        Ok(Eip712Signature { signature, digest })
+    }
+
+    #[cfg(feature = "evm")]
     pub fn sign_ethereum_transaction(
         &self,
         _tx_hash: &[u8; 32],
     ) -> Result<alloy_primitives::Signature, Error> {
-        // TODO: Implement proper EIP-155 transaction signing
-        // This would involve:
-        // 1. Serializing the transaction according to EIP-155
-        // 2. Computing the Keccak-256 hash
-        // 3. Signing with the secp256k1 key
-        // 4. Adjusting recovery id for Ethereum format
-
         Err(Error::Wallet(
-            "Ethereum transaction signing not yet implemented".to_string(),
+            "Use sign_eip1559 or sign_eip712 for Ethereum signing".to_string(),
         ))
     }
 }

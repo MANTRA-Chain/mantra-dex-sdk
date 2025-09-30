@@ -1,11 +1,11 @@
 #[cfg(feature = "evm")]
 use crate::error::Error;
 #[cfg(feature = "evm")]
-use crate::protocols::evm::types::{
-    EthAddress, EventFilter, EvmCallRequest, EvmError, EvmTransactionRequest,
-};
+use crate::protocols::evm::tx::{Eip1559Transaction, SignedEip1559Transaction};
 #[cfg(feature = "evm")]
-use crate::wallet::MantraWallet;
+use crate::protocols::evm::types::{
+    Eip1559FeeSuggestion, EthAddress, EventFilter, EvmCallRequest, EvmError, EvmTransactionRequest,
+};
 #[cfg(feature = "evm")]
 use alloy_primitives::{Address, Bytes, B256, U256};
 /// EVM Client for MANTRA SDK
@@ -14,15 +14,15 @@ use alloy_primitives::{Address, Bytes, B256, U256};
 /// including contract calls, transaction submission, event querying, and gas estimation.
 
 #[cfg(feature = "evm")]
-use alloy_provider::{Provider, ProviderBuilder};
+use alloy_provider::{PendingTransactionBuilder, Provider, ProviderBuilder};
 #[cfg(feature = "evm")]
-use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, Log, TransactionRequest};
+use alloy_rpc_types_eth::{BlockId, BlockNumberOrTag, Filter, Log, TransactionRequest};
 #[cfg(feature = "evm")]
 use alloy_sol_types::SolCall;
 #[cfg(feature = "evm")]
 use alloy_transport_http::{Client, Http};
 #[cfg(feature = "evm")]
-use std::sync::Arc;
+use std::time::Duration;
 
 /// EVM Client for blockchain interactions
 #[cfg(feature = "evm")]
@@ -70,25 +70,24 @@ impl EvmClient {
 
     /// Estimate gas for a transaction
     pub async fn estimate_gas(&self, request: EvmTransactionRequest) -> Result<u64, Error> {
-        let tx_request = TransactionRequest {
-            to: request
-                .to
-                .map(|addr| alloy_primitives::TxKind::Call(addr.0)),
-            value: Some(request.value),
-            gas: request.gas_limit,
-            max_fee_per_gas: request.max_fee_per_gas.map(|f| f.to::<u128>()),
-            max_priority_fee_per_gas: request.max_priority_fee_per_gas.map(|f| f.to::<u128>()),
-            input: request.data.into(),
-            ..Default::default()
-        };
+        self.estimate_gas_with_options(request, None, None).await
+    }
 
-        let gas = self
-            .provider
-            .estimate_gas(&tx_request)
-            .await
-            .map_err(|e| EvmError::GasEstimationError(e.to_string()))?;
+    /// Estimate gas with optional sender override and block context.
+    pub async fn estimate_gas_with_options(
+        &self,
+        request: EvmTransactionRequest,
+        from: Option<EthAddress>,
+        block: Option<BlockNumberOrTag>,
+    ) -> Result<u64, Error> {
+        let rpc_request = request.to_rpc_request(from);
+        let mut call = self.provider.estimate_gas(&rpc_request);
+        if let Some(block) = block {
+            call = call.block(BlockId::Number(block));
+        }
 
-        Ok(gas)
+        call.await
+            .map_err(|e| EvmError::GasEstimationError(e.to_string()).into())
     }
 
     /// Get the current block number
@@ -138,6 +137,30 @@ impl EvmClient {
         }
     }
 
+    /// Provide EIP-1559 fee suggestions using provider heuristics.
+    pub async fn fee_suggestion(&self) -> Result<Eip1559FeeSuggestion, Error> {
+        let estimation = self
+            .provider
+            .estimate_eip1559_fees(None)
+            .await
+            .map_err(|e| EvmError::RpcError(e.to_string()))?;
+
+        let max_fee = U256::from(estimation.max_fee_per_gas);
+        let max_priority = U256::from(estimation.max_priority_fee_per_gas);
+        let base_component = max_fee.saturating_sub(max_priority);
+        let base_fee = if base_component.is_zero() {
+            U256::ZERO
+        } else {
+            base_component / U256::from(2u64)
+        };
+
+        Ok(Eip1559FeeSuggestion {
+            base_fee_per_gas: base_fee,
+            max_fee_per_gas: max_fee,
+            max_priority_fee_per_gas: max_priority,
+        })
+    }
+
     /// Query event logs
     pub async fn get_logs(&self, filter: EventFilter) -> Result<Vec<Log>, Error> {
         let alloy_filter = Filter {
@@ -184,6 +207,27 @@ impl EvmClient {
         Ok(balance)
     }
 
+    /// Fetch the transaction count (nonce) for an address at a given block.
+    pub async fn get_transaction_count(
+        &self,
+        address: EthAddress,
+        block: Option<BlockNumberOrTag>,
+    ) -> Result<u64, Error> {
+        let mut call = self.provider.get_transaction_count(address.0);
+        if let Some(block) = block {
+            call = call.block_id(BlockId::Number(block));
+        }
+
+        call.await
+            .map_err(|e| EvmError::RpcError(e.to_string()).into())
+    }
+
+    /// Fetch the pending nonce (including mempool transactions).
+    pub async fn get_pending_nonce(&self, address: EthAddress) -> Result<u64, Error> {
+        self.get_transaction_count(address, Some(BlockNumberOrTag::Pending))
+            .await
+    }
+
     /// Get transaction receipt by hash
     pub async fn get_transaction_receipt(
         &self,
@@ -196,6 +240,73 @@ impl EvmClient {
             .map_err(|e| EvmError::RpcError(e.to_string()))?;
 
         Ok(receipt)
+    }
+
+    /// Broadcast a signed EIP-1559 transaction.
+    pub async fn send_raw_transaction(
+        &self,
+        signed_tx: &SignedEip1559Transaction,
+    ) -> Result<B256, Error> {
+        let raw = signed_tx.raw().clone();
+        let pending = self
+            .provider
+            .send_raw_transaction(raw.as_ref())
+            .await
+            .map_err(|e| EvmError::RpcError(e.to_string()))?;
+
+        Ok(*pending.tx_hash())
+    }
+
+    /// Broadcast a signed transaction and wait for the receipt.
+    pub async fn send_raw_transaction_with_confirmations(
+        &self,
+        signed_tx: &SignedEip1559Transaction,
+        confirmations: u64,
+        timeout: Option<Duration>,
+    ) -> Result<(B256, alloy_rpc_types_eth::TransactionReceipt), Error> {
+        let tx_hash = self.send_raw_transaction(signed_tx).await?;
+        let receipt = self
+            .wait_for_receipt(tx_hash, confirmations, timeout)
+            .await?;
+        Ok((tx_hash, receipt))
+    }
+
+    /// Wait for a transaction to be mined with optional timeout.
+    pub async fn wait_for_receipt(
+        &self,
+        tx_hash: B256,
+        confirmations: u64,
+        timeout: Option<Duration>,
+    ) -> Result<alloy_rpc_types_eth::TransactionReceipt, Error> {
+        let mut builder = PendingTransactionBuilder::new(&self.provider, tx_hash)
+            .with_required_confirmations(confirmations);
+
+        if let Some(timeout) = timeout {
+            builder = builder.with_timeout(Some(timeout));
+        }
+
+        builder
+            .get_receipt()
+            .await
+            .map_err(|e| Error::Other(format!("Pending transaction error: {e}")))
+    }
+
+    /// Simulate an EIP-1559 transaction via eth_call.
+    pub async fn simulate_eip1559(
+        &self,
+        from: EthAddress,
+        tx: &Eip1559Transaction,
+        block: Option<BlockNumberOrTag>,
+    ) -> Result<Bytes, Error> {
+        let request =
+            <EvmTransactionRequest as From<&Eip1559Transaction>>::from(tx).from(from.clone());
+        let rpc_request = request.to_rpc_request(Some(from));
+        let mut call = self.provider.call(&rpc_request);
+        if let Some(block) = block {
+            call = call.block(BlockId::Number(block));
+        }
+        call.await
+            .map_err(|e| EvmError::RpcError(e.to_string()).into())
     }
 
     /// Get transaction by hash
@@ -258,16 +369,15 @@ impl EvmClient {
         self.chain_id
     }
 
-    /// Submit a signed transaction
-    ///
-    /// Note: This is a placeholder. Actual implementation would require
-    /// transaction signing and submission logic integrated with the wallet.
-    pub async fn send_raw_transaction(&self, _signed_tx: Vec<u8>) -> Result<B256, Error> {
-        // TODO: Implement transaction submission
-        // This would decode the signed transaction and submit via eth_sendRawTransaction
-        Err(Error::Other(
-            "Transaction submission not yet implemented".to_string(),
-        ))
+    /// Submit already-signed transaction bytes to the network.
+    pub async fn send_raw_transaction_bytes(&self, signed_tx: Vec<u8>) -> Result<B256, Error> {
+        let pending = self
+            .provider
+            .send_raw_transaction(&signed_tx)
+            .await
+            .map_err(|e| EvmError::RpcError(e.to_string()))?;
+
+        Ok(*pending.tx_hash())
     }
 
     /// Call a contract method (read-only)

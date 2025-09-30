@@ -2,6 +2,7 @@
 
 #[cfg(feature = "evm")]
 mod tests {
+    use alloy_eips::eip2930::AccessList;
     use alloy_primitives::{Address, U256};
     use mantra_sdk::protocols::evm::client::EvmClient;
     use mantra_sdk::protocols::evm::types::{
@@ -22,6 +23,32 @@ mod tests {
         // Invalid address - no 0x prefix
         let invalid_addr2 = "742d35Cc6634C0532925a3b844Bc454e4438f44e";
         assert!(EthAddress::from_str(invalid_addr2).is_err());
+    }
+
+    #[test]
+    fn test_evm_transaction_request_to_rpc_request() {
+        let addr = EthAddress::from_str("0x742d35Cc6634C0532925a3b844Bc454e4438f44e").unwrap();
+        let request = EvmTransactionRequest::new(1)
+            .to(addr.clone())
+            .value(U256::from(1_u64))
+            .gas_limit(21000)
+            .eip1559_fees(U256::from(30_u64), U256::from(2_u64))
+            .nonce(7)
+            .data(vec![0xAB, 0xCD])
+            .from(addr.clone());
+
+        let rpc = request.to_rpc_request(None);
+        assert_eq!(rpc.from, Some(addr.0));
+        assert_eq!(rpc.nonce, Some(7));
+        assert_eq!(rpc.gas, Some(21000));
+        assert_eq!(rpc.max_fee_per_gas, Some(30));
+        assert_eq!(rpc.max_priority_fee_per_gas, Some(2));
+        assert!(matches!(rpc.to, Some(alloy_primitives::TxKind::Call(_))));
+        assert_eq!(rpc.chain_id, Some(1));
+        assert_eq!(
+            rpc.input.into_input().unwrap(),
+            Some(vec![0xAB, 0xCD].into())
+        );
     }
 
     #[test]
@@ -47,6 +74,9 @@ mod tests {
         assert!(request.to.is_none());
         assert_eq!(request.value, U256::ZERO);
         assert!(request.data.is_empty());
+        assert!(request.nonce.is_none());
+        assert!(request.from.is_none());
+        assert_eq!(request.access_list, AccessList::default());
 
         let addr = EthAddress::from_str("0x742d35Cc6634C0532925a3b844Bc454e4438f44e").unwrap();
         let value = U256::from(1000000u64);
@@ -54,11 +84,45 @@ mod tests {
         request = request
             .to(addr.clone())
             .value(value)
-            .data(vec![0x01, 0x02, 0x03]);
+            .data(vec![0x01, 0x02, 0x03])
+            .from(addr.clone());
 
-        assert_eq!(request.to, Some(addr));
+        assert_eq!(request.to, Some(addr.clone()));
         assert_eq!(request.value, value);
         assert_eq!(request.data, vec![0x01, 0x02, 0x03]);
+        assert_eq!(request.from, Some(addr));
+    }
+
+    #[test]
+    fn test_evm_transaction_request_into_eip1559() {
+        let addr = EthAddress::from_str("0x742d35Cc6634C0532925a3b844Bc454e4438f44e").unwrap();
+
+        let request = EvmTransactionRequest::new(1)
+            .to(addr.clone())
+            .value(U256::from(42_u64))
+            .gas_limit(21000)
+            .eip1559_fees(
+                U256::from(30_000_000_000_u128),
+                U256::from(2_000_000_000_u128),
+            )
+            .nonce(5)
+            .data(vec![0xAA]);
+
+        let tx = request.into_eip1559().expect("conversion should succeed");
+
+        assert_eq!(tx.chain_id, 1);
+        assert_eq!(tx.nonce, 5);
+        assert_eq!(tx.gas_limit, 21000);
+        assert_eq!(tx.max_fee_per_gas, 30_000_000_000_u128);
+        assert_eq!(tx.max_priority_fee_per_gas, 2_000_000_000_u128);
+        assert_eq!(tx.value, U256::from(42_u64));
+        assert_eq!(tx.to, Some(*addr.inner()));
+        assert_eq!(tx.data, vec![0xAA].into());
+
+        let round_trip = EvmTransactionRequest::from(&tx);
+        assert_eq!(round_trip.nonce, Some(5));
+        assert_eq!(round_trip.gas_limit, Some(21000));
+        assert_eq!(round_trip.value, U256::from(42_u64));
     }
 
     #[test]

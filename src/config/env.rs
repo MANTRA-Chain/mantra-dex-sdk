@@ -188,7 +188,13 @@ impl EnvironmentConfig {
         let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
 
         // Configuration file names to try (in order of preference)
-        let config_files = vec!["mantra.toml", "mantra.json", "config.toml", "config.json", "network.toml"];
+        let config_files = vec![
+            "mantra.toml",
+            "mantra.json",
+            "config.toml",
+            "config.json",
+            "network.toml",
+        ];
 
         // Paths to search for configuration files
         let search_paths = vec![

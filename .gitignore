@@ -16,6 +16,7 @@ artifacts/
 
 # Auto-gen
 .cargo-ok
+PRPs/
 
 .env
 *.log
