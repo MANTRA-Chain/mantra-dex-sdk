@@ -100,19 +100,10 @@ impl Theme {
 }
 
 /// Simple form state for managing current field focus
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FormState {
     pub current_field: usize,
     pub editing: bool,
-}
-
-impl Default for FormState {
-    fn default() -> Self {
-        Self {
-            current_field: 0,
-            editing: false,
-        }
-    }
 }
 
 impl FormState {
@@ -482,6 +473,10 @@ impl SettingsState {
                     gas_adjustment: 1.3,
                     native_denom: "uom".to_string(),
                     contracts: new_config.network.contracts.clone(),
+                    #[cfg(feature = "evm")]
+                    evm_rpc_url: None,
+                    #[cfg(feature = "evm")]
+                    evm_chain_id: None,
                 };
             }
             NetworkEnvironment::Testnet => {
@@ -493,6 +488,10 @@ impl SettingsState {
                     gas_adjustment: 1.3,
                     native_denom: "uom".to_string(),
                     contracts: new_config.network.contracts.clone(),
+                    #[cfg(feature = "evm")]
+                    evm_rpc_url: None,
+                    #[cfg(feature = "evm")]
+                    evm_chain_id: None,
                 };
             }
             NetworkEnvironment::Custom => {
@@ -965,7 +964,7 @@ fn render_wallet_settings(frame: &mut Frame, area: Rect, state: &mut SettingsSta
         frame.render_widget(help_paragraph, mnemonic_chunks[1]);
     } else {
         // Show export/backup options
-        let export_text = vec![
+        let export_text = [
             "Backup Options:",
             "• Export wallet address: Ctrl+E",
             "• View mnemonic phrase: Ctrl+M (requires confirmation)",
@@ -1387,6 +1386,12 @@ fn render_settings_focus_indicators(frame: &mut Frame, area: Rect, app: &crate::
 
 /// Settings screen implementation for MANTRA DEX SDK TUI
 pub struct SettingsScreen;
+
+impl Default for SettingsScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SettingsScreen {
     pub fn new() -> Self {

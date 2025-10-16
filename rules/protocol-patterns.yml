@@ -1,0 +1,87 @@
+# Protocol Architecture Patterns for MANTRA SDK
+
+rules:
+  - id: protocol-trait-implementation
+    message: "Protocol trait implementation found"
+    severity: info
+    language: rust
+    pattern: |
+      impl Protocol for $TYPE {
+        $$$BODY
+      }
+    note: "Ensure protocol is registered in ProtocolRegistry (src/client.rs:80-100)"
+
+  - id: unregistered-protocol
+    message: "Protocol client may need registration"
+    severity: warning
+    language: rust
+    pattern: |
+      pub struct $NAME {
+        $$$FIELDS
+      }
+    constraints:
+      NAME:
+        regex: ".*Client$"
+    not:
+      inside:
+        pattern: |
+          mod protocols {
+            $$$BODY
+          }
+    note: "New protocol clients should be registered in ProtocolRegistry"
+
+  - id: protocol-access-pattern
+    message: "Protocol access via client registry"
+    severity: info
+    language: rust
+    any:
+      - pattern: "client.dex()?"
+      - pattern: "client.skip()?"
+      - pattern: "client.claimdrop_factory($ADDR)"
+    note: "Proper protocol registry access pattern"
+
+  - id: direct-protocol-instantiation
+    message: "Avoid direct protocol instantiation, use registry"
+    severity: warning
+    language: rust
+    pattern: "$PROTO::new($$$ARGS)"
+    constraints:
+      PROTO:
+        regex: ".*Client$"
+    not:
+      inside:
+        any:
+          - pattern: |
+              impl MantraClient {
+                $$$BODY
+              }
+          - pattern: |
+              impl ProtocolRegistry {
+                $$$BODY
+              }
+    note: "Use MantraClient protocol registry methods instead of direct instantiation"
+
+  - id: missing-protocol-error-conversion
+    message: "Protocol error should be converted to MantraError"
+    severity: error
+    language: rust
+    pattern: |
+      fn $NAME($$$PARAMS) -> Result<$RET, $ERR> {
+        $$$BODY
+      }
+    constraints:
+      ERR:
+        not:
+          regex: "MantraError"
+    has:
+      any:
+        - pattern: ".dex()?"
+        - pattern: ".skip()?"
+        - pattern: ".claimdrop"
+    not:
+      inside:
+        pattern: |
+          mod protocols {
+            $$$BODY
+          }
+    note: "Protocol functions should return Result<T, MantraError>"

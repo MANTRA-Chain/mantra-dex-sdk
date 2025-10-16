@@ -800,8 +800,8 @@ fn generate_csv_preview(transactions: &[TransactionInfo]) -> String {
         first_tx.status,
         first_tx.operation_type,
         first_tx.timestamp.to_rfc3339(),
-        first_tx.gas_used.map(|g| g.to_string()).unwrap_or_else(|| "".to_string()),
-        first_tx.gas_wanted.map(|g| g.to_string()).unwrap_or_else(|| "".to_string()),
+        first_tx.gas_used.map(|g| g.to_string()).unwrap_or_default(),
+        first_tx.gas_wanted.map(|g| g.to_string()).unwrap_or_default(),
         transactions.len()
     )
 }

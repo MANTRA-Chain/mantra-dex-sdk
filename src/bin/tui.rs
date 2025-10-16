@@ -5,7 +5,7 @@
 #[cfg(feature = "tui-dex")]
 use clap::Parser;
 #[cfg(feature = "tui-dex")]
-use mantra_dex_sdk::{client::MantraDexClient, config::MantraNetworkConfig, tui::run_tui};
+use mantra_sdk::{client::MantraDexClient, config::MantraNetworkConfig, tui::run_tui};
 
 #[cfg(feature = "tui-dex")]
 #[derive(Parser)]

@@ -8,7 +8,6 @@ use crate::protocols::evm::types::EthAddress;
 ///
 /// Provides high-level methods for interacting with ERC-20 compatible tokens,
 /// including balance queries, transfers, and approvals.
-
 #[cfg(feature = "evm")]
 use alloy_primitives::{Address, U256};
 #[cfg(feature = "evm")]

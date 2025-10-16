@@ -310,7 +310,49 @@ export RUST_LOG=debug
 export MCP_SERVER_DEBUG=true
 ```
 
-## Security Best Practices
+## Security Considerations
+
+### Wallet Security ⚠️
+
+The MANTRA SDK includes wallet functionality that stores BIP-39 mnemonic phrases in memory.
+**This has security implications you must understand before use in production.**
+
+#### For Development/Testing
+- Current implementation is suitable for development and testing
+- Uses `secrecy` crate for basic protection against casual inspection
+- Automatic zeroization when wallet is dropped
+
+#### For Production
+**⚠️ WARNING**: Do not use in-memory wallet for production without additional security:
+
+1. **Conduct Security Audit**: Professional review required for financial applications
+2. **Use Hardware Security**: Consider HSMs, hardware wallets, or secure enclaves
+3. **Minimize Exposure**: Create wallet instances only when needed, drop immediately after use
+4. **Secure Environment**: Run in hardened, monitored environments
+5. **Follow Compliance**: Adhere to regulatory requirements (GDPR, PCI-DSS, SOC2, etc.)
+
+**See `src/wallet/multivm.rs` module documentation for detailed security analysis and mitigation strategies.**
+
+#### Wallet Security Model
+
+**Protects Against:**
+- ✅ Casual memory inspection
+- ✅ Accidental logging/debug output of secrets
+- ✅ Secrets persisting after wallet drop
+
+**Does NOT Protect Against:**
+- ❌ Malicious code running in the same process
+- ❌ OS-level memory inspection (debuggers, core dumps)
+- ❌ Physical memory attacks (cold boot, DMA)
+- ❌ Side-channel attacks (timing, power analysis)
+
+#### Reporting Security Issues
+
+If you discover a security vulnerability, please email: security@mantrachain.io
+
+**Do not** open public GitHub issues for security vulnerabilities.
+
+### Best Practices
 
 - **Private Keys**: Never exposed in responses, encrypted storage
 - **Validation**: All transaction parameters validated before execution

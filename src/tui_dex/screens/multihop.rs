@@ -7,7 +7,7 @@
 use crate::tui_dex::{
     app::{App, LoadingState},
     components::{
-        forms::{Dropdown, DropdownOption, InputType, TextInput},
+        forms::{Dropdown, InputType, TextInput},
         header::render_header,
         modals::{render_modal, ModalState},
         navigation::render_navigation,
@@ -131,7 +131,7 @@ pub struct MultiHopScreenState {
 impl Default for MultiHopScreenState {
     fn default() -> Self {
         let mut from_token_dropdown = Dropdown::new("From Token").required();
-        let mut to_token_dropdown = Dropdown::new("To Token").required();
+        let to_token_dropdown = Dropdown::new("To Token").required();
         let pool_dropdown = Dropdown::new("Select Pool").required();
 
         let amount_input = TextInput::new("Amount")
@@ -188,7 +188,7 @@ impl MultiHopScreenState {
                 from_asset: from_token.to_string(),
                 to_asset: to_token.to_string(),
                 pool_id: pool_id.clone(),
-                pool_name: self.find_pool_name(&pool_id),
+                pool_name: self.find_pool_name(pool_id),
                 amount_in: amount,
                 ..Default::default()
             };

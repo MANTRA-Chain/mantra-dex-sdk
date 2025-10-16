@@ -294,6 +294,7 @@ impl MantraWallet {
             .sign_digest_recoverable(digest)
             .map_err(|e| Error::Wallet(format!("Failed to sign digest: {}", e)))?;
 
+        #[allow(deprecated)]
         let signature = Signature::from((sig, recid));
         Ok((signature, B256::from(hash_bytes)))
     }
@@ -316,7 +317,7 @@ impl MantraWallet {
         struct_hash: B256,
     ) -> Result<Eip712Signature, Error> {
         let (signature, digest) = self.sign_with_keccak(|d| {
-            d.update(&[0x19, 0x01]);
+            d.update([0x19, 0x01]);
             d.update(domain_separator.as_slice());
             d.update(struct_hash.as_slice());
         })?;

@@ -10,9 +10,8 @@ use crate::protocols::evm::types::EthAddress;
 ///
 /// Provides a flexible interface for interacting with contracts that don't
 /// follow standard ERC patterns, using loaded ABIs for encoding/decoding.
-
 #[cfg(feature = "evm")]
-use alloy_primitives::{Address, U256};
+use alloy_primitives::U256;
 #[cfg(feature = "evm")]
 use serde_json::Value;
 #[cfg(feature = "evm")]

@@ -7,8 +7,6 @@ use crate::error::Error;
 #[cfg(feature = "evm")]
 use alloy_json_abi::{Event, Function, JsonAbi};
 #[cfg(feature = "evm")]
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "evm")]
 use std::collections::HashMap;
 #[cfg(feature = "evm")]
 use std::fs;

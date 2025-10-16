@@ -1,0 +1,100 @@
+# Configuration Management Patterns for MANTRA SDK
+
+rules:
+  - id: config-file-location
+    message: "Configuration should be in config/ directory"
+    severity: warning
+    language: rust
+    pattern: |
+      const $NAME: &str = "$PATH.toml";
+    constraints:
+      PATH:
+        not:
+          regex: "^config/.*"
+    note: "TOML configuration files should be in config/ directory"
+
+  - id: env-var-override
+    message: "Configuration should support env var override"
+    severity: info
+    language: rust
+    pattern: |
+      fn $NAME() -> $RET {
+        $$$BEFORE
+        let $VAR = $CONFIG.$FIELD;
+        $$$AFTER
+      }
+    not:
+      has:
+        any:
+          - pattern: "env::var"
+          - pattern: "std::env"
+    note: "Consider supporting environment variable overrides"
+
+  - id: contract-address-validation
+    message: "Contract address should be validated"
+    severity: error
+    language: rust
+    pattern: |
+      fn $NAME($$$PARAMS) {
+        $$$BEFORE
+        let address = $ADDR;
+        $$$AFTER
+      }
+    has:
+      pattern: "contract"
+    not:
+      has:
+        any:
+          - pattern: "validate"
+          - pattern: "Addr::unchecked"
+          - pattern: "deps.api.addr_validate"
+    note: "Validate contract addresses before use"
+
+  - id: network-config-required
+    message: "Network configuration should include all endpoints"
+    severity: warning
+    language: rust
+    pattern: |
+      struct $NAME {
+        $$$FIELDS
+      }
+    constraints:
+      NAME:
+        regex: ".*Config"
+    has:
+      pattern: "rpc"
+    not:
+      all:
+        - has:
+            pattern: "lcd"
+        - has:
+            pattern: "grpc"
+    note: "Network config should include rpc, lcd, and grpc endpoints"
+
+  - id: config-deserialize-error
+    message: "Configuration deserialization should provide context"
+    severity: warning
+    language: rust
+    pattern: "toml::from_str($$$ARGS)?"
+    note: "Add context to config parsing errors with .context() or .map_err()"
+
+  - id: default-config-impl
+    message: "Configuration struct should implement Default"
+    severity: info
+    language: rust
+    pattern: |
+      pub struct $NAME {
+        $$$FIELDS
+      }
+    constraints:
+      NAME:
+        regex: ".*Config"
+    not:
+      has:
+        any:
+          - pattern: "#[derive($$$DERIVES, Default, $$$REST)]"
+          - pattern: |
+              impl Default for $NAME {
+                $$$BODY
+              }
+    note: "Consider implementing Default for configuration structs"

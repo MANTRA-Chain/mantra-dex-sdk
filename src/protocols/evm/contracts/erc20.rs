@@ -71,10 +71,29 @@ impl Erc20 {
         Ok(result._0)
     }
 
-    /// Transfer tokens
-    pub async fn transfer(&self, to: Address, amount: U256) -> Result<(), Error> {
+    /// Get the contract address
+    pub fn address(&self) -> Address {
+        self.address
+    }
+
+    /// Encode transfer call data
+    pub fn encode_transfer(&self, to: Address, amount: U256) -> Vec<u8> {
+        use alloy_sol_types::SolCall;
         let call = IERC20::transferCall { to, amount };
-        self.client.send_contract_call(self.address, call).await
+        call.abi_encode()
+    }
+
+    /// Transfer tokens
+    pub async fn transfer(
+        &self,
+        to: Address,
+        amount: U256,
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
+        let call = IERC20::transferCall { to, amount };
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 
     /// Get allowance
@@ -84,10 +103,24 @@ impl Erc20 {
         Ok(result._0)
     }
 
-    /// Approve spending
-    pub async fn approve(&self, spender: Address, amount: U256) -> Result<(), Error> {
+    /// Encode approve call data
+    pub fn encode_approve(&self, spender: Address, amount: U256) -> Vec<u8> {
+        use alloy_sol_types::SolCall;
         let call = IERC20::approveCall { spender, amount };
-        self.client.send_contract_call(self.address, call).await
+        call.abi_encode()
+    }
+
+    /// Approve spending
+    pub async fn approve(
+        &self,
+        spender: Address,
+        amount: U256,
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
+        let call = IERC20::approveCall { spender, amount };
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 
     /// Transfer from (requires allowance)
@@ -96,8 +129,11 @@ impl Erc20 {
         from: Address,
         to: Address,
         amount: U256,
-    ) -> Result<(), Error> {
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC20::transferFromCall { from, to, amount };
-        self.client.send_contract_call(self.address, call).await
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 }

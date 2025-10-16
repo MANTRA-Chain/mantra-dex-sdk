@@ -16,7 +16,7 @@ const ENV_MCP_PREFIX: &str = "MANTRA_MCP";
 const ENV_LOG_PREFIX: &str = "MANTRA_LOG";
 
 /// Network configuration loaded from environment/files
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NetworkEnvConfig {
     /// Network name (e.g., "mantra-dukong")
     pub name: Option<String>,
@@ -44,28 +44,8 @@ pub struct NetworkEnvConfig {
     pub evm_chain_id: Option<u64>,
 }
 
-impl Default for NetworkEnvConfig {
-    fn default() -> Self {
-        Self {
-            name: None,
-            chain_id: None,
-            rpc_url: None,
-            rpc_fallback_urls: Vec::new(),
-            gas_price: None,
-            gas_adjustment: None,
-            native_denom: None,
-            rpc_timeout_secs: None,
-            rpc_pool_size: None,
-            #[cfg(feature = "evm")]
-            evm_rpc_url: None,
-            #[cfg(feature = "evm")]
-            evm_chain_id: None,
-        }
-    }
-}
-
 /// MCP server configuration from environment/files
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpEnvConfig {
     /// Server name
     pub name: Option<String>,
@@ -89,25 +69,8 @@ pub struct McpEnvConfig {
     pub enabled: Option<bool>,
 }
 
-impl Default for McpEnvConfig {
-    fn default() -> Self {
-        Self {
-            name: None,
-            version: None,
-            debug: None,
-            max_concurrent_ops: None,
-            request_timeout_secs: None,
-            cache_ttl_secs: None,
-            transport_type: None,
-            http_host: None,
-            http_port: None,
-            enabled: None,
-        }
-    }
-}
-
 /// Logging configuration from environment/files
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LoggingEnvConfig {
     /// Log level (error, warn, info, debug, trace)
     pub level: Option<String>,
@@ -125,22 +88,8 @@ pub struct LoggingEnvConfig {
     pub structured: Option<bool>,
 }
 
-impl Default for LoggingEnvConfig {
-    fn default() -> Self {
-        Self {
-            level: None,
-            format: None,
-            enable_colors: None,
-            file_path: None,
-            max_file_size_mb: None,
-            max_files: None,
-            structured: None,
-        }
-    }
-}
-
 /// Complete environment configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnvironmentConfig {
     /// Network configuration
     pub network: NetworkEnvConfig,
@@ -152,18 +101,6 @@ pub struct EnvironmentConfig {
     pub custom: HashMap<String, String>,
     /// Configuration file paths that were loaded
     pub loaded_files: Vec<String>,
-}
-
-impl Default for EnvironmentConfig {
-    fn default() -> Self {
-        Self {
-            network: NetworkEnvConfig::default(),
-            mcp: McpEnvConfig::default(),
-            logging: LoggingEnvConfig::default(),
-            custom: HashMap::new(),
-            loaded_files: Vec::new(),
-        }
-    }
 }
 
 impl EnvironmentConfig {

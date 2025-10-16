@@ -8,7 +8,7 @@ use crate::tui_dex::components::modals::{ErrorType, ModalState};
 #[cfg(feature = "tui-dex")]
 use crate::tui_dex::events::Event;
 #[cfg(feature = "tui-dex")]
-use crate::tui_dex::screens::liquidity::{self, LiquidityMode};
+use crate::tui_dex::screens::liquidity;
 #[cfg(feature = "tui-dex")]
 use crate::tui_dex::utils::focus_manager::FocusManager;
 #[cfg(feature = "tui-dex")]
@@ -964,9 +964,9 @@ impl App {
                 asset_2_amount,
                 slippage_tolerance,
             } => {
-                crate::tui_dex::utils::logger::log_info(&format!(
+                crate::tui_dex::utils::logger::log_info(
                     "=== PROCESSING PROVIDE LIQUIDITY EVENT ===",
-                ));
+                );
                 crate::tui_dex::utils::logger::log_info(&format!(
                     "Pool ID: {}, Asset 1: {}, Asset 2: {}, Slippage: {:?}",
                     pool_id, asset_1_amount, asset_2_amount, slippage_tolerance
@@ -1019,9 +1019,9 @@ impl App {
                 lp_token_amount,
                 slippage_tolerance,
             } => {
-                crate::tui_dex::utils::logger::log_info(&format!(
+                crate::tui_dex::utils::logger::log_info(
                     "=== PROCESSING WITHDRAW LIQUIDITY EVENT ===",
-                ));
+                );
                 crate::tui_dex::utils::logger::log_info(&format!(
                     "Pool ID: {}, LP Amount: {}, Slippage: {:?}",
                     pool_id, lp_token_amount, slippage_tolerance
@@ -1160,10 +1160,8 @@ impl App {
         }
 
         // Handle modal events FIRST - they take priority over everything else
-        if self.state.modal_state.is_some() {
-            if self.handle_modal_event(&event) {
-                return Ok(false); // Modal handled the event, don't process further
-            }
+        if self.state.modal_state.is_some() && self.handle_modal_event(&event) {
+            return Ok(false); // Modal handled the event, don't process further
         }
 
         // Handle wizard events SECOND - they should take priority when active
@@ -1805,7 +1803,7 @@ impl App {
         // Note: If no tokens are available from cache, dropdown will remain empty
         // This is normal during initial loading or when no pools exist
 
-        let mut tokens_vec: Vec<String> = available_tokens.into_iter().collect();
+        let tokens_vec: Vec<String> = available_tokens.into_iter().collect();
 
         // Note: No longer adding test tokens since they should come from real pool assets
         if tokens_vec.is_empty() {
@@ -2279,59 +2277,56 @@ impl App {
         let swap_state = crate::tui_dex::screens::swap::get_swap_screen_state();
 
         // Handle MoveFocus events directly for better arrow key navigation
-        match &event {
-            Event::MoveFocus(direction) => {
-                // Only handle arrow keys when we're in content mode and focused on interactive elements
-                if self.state.navigation_mode == NavigationMode::WithinScreen {
-                    match direction {
-                        crate::tui_dex::events::FocusDirection::Up => {
-                            // Check if we're in a dropdown that should handle up/down
-                            if matches!(
-                                swap_state.input_focus,
-                                crate::tui_dex::screens::swap::SwapInputFocus::Pool
-                                    | crate::tui_dex::screens::swap::SwapInputFocus::FromToken
-                            ) && swap_state.is_any_list_editing()
-                            {
-                                // Let the dropdown handle the navigation
-                                let key = crossterm::event::KeyEvent::new(
-                                    crossterm::event::KeyCode::Up,
-                                    crossterm::event::KeyModifiers::NONE,
-                                );
-                                if swap_state.handle_key_event(key, self.state.navigation_mode) {
-                                    self.sync_swap_state_to_app(swap_state);
-                                    return Ok(true);
-                                }
+        if let Event::MoveFocus(direction) = &event {
+            // Only handle arrow keys when we're in content mode and focused on interactive elements
+            if self.state.navigation_mode == NavigationMode::WithinScreen {
+                match direction {
+                    crate::tui_dex::events::FocusDirection::Up => {
+                        // Check if we're in a dropdown that should handle up/down
+                        if matches!(
+                            swap_state.input_focus,
+                            crate::tui_dex::screens::swap::SwapInputFocus::Pool
+                                | crate::tui_dex::screens::swap::SwapInputFocus::FromToken
+                        ) && swap_state.is_any_list_editing()
+                        {
+                            // Let the dropdown handle the navigation
+                            let key = crossterm::event::KeyEvent::new(
+                                crossterm::event::KeyCode::Up,
+                                crossterm::event::KeyModifiers::NONE,
+                            );
+                            if swap_state.handle_key_event(key, self.state.navigation_mode) {
+                                self.sync_swap_state_to_app(swap_state);
+                                return Ok(true);
                             }
-                            // Otherwise, let global focus management handle it
-                            return Ok(false);
                         }
-                        crate::tui_dex::events::FocusDirection::Down => {
-                            // Check if we're in a dropdown that should handle up/down
-                            if matches!(
-                                swap_state.input_focus,
-                                crate::tui_dex::screens::swap::SwapInputFocus::Pool
-                                    | crate::tui_dex::screens::swap::SwapInputFocus::FromToken
-                            ) && swap_state.is_any_list_editing()
-                            {
-                                // Let the dropdown handle the navigation
-                                let key = crossterm::event::KeyEvent::new(
-                                    crossterm::event::KeyCode::Down,
-                                    crossterm::event::KeyModifiers::NONE,
-                                );
-                                if swap_state.handle_key_event(key, self.state.navigation_mode) {
-                                    self.sync_swap_state_to_app(swap_state);
-                                    return Ok(true);
-                                }
-                            }
-                            // Otherwise, let global focus management handle it
-                            return Ok(false);
-                        }
-                        _ => return Ok(false), // Let global focus handle other directions
+                        // Otherwise, let global focus management handle it
+                        return Ok(false);
                     }
+                    crate::tui_dex::events::FocusDirection::Down => {
+                        // Check if we're in a dropdown that should handle up/down
+                        if matches!(
+                            swap_state.input_focus,
+                            crate::tui_dex::screens::swap::SwapInputFocus::Pool
+                                | crate::tui_dex::screens::swap::SwapInputFocus::FromToken
+                        ) && swap_state.is_any_list_editing()
+                        {
+                            // Let the dropdown handle the navigation
+                            let key = crossterm::event::KeyEvent::new(
+                                crossterm::event::KeyCode::Down,
+                                crossterm::event::KeyModifiers::NONE,
+                            );
+                            if swap_state.handle_key_event(key, self.state.navigation_mode) {
+                                self.sync_swap_state_to_app(swap_state);
+                                return Ok(true);
+                            }
+                        }
+                        // Otherwise, let global focus management handle it
+                        return Ok(false);
+                    }
+                    _ => return Ok(false), // Let global focus handle other directions
                 }
-                return Ok(false);
             }
-            _ => {}
+            return Ok(false);
         }
 
         // Handle other swap-specific events
@@ -2568,7 +2563,7 @@ impl App {
             // If pool might have changed, fetch reserves for proportional calculations
             if pool_changed {
                 if let Some(pool_id) = liquidity_state.pool_dropdown.get_selected_value() {
-                    self.fetch_pool_reserves_for_liquidity(&pool_id).await?;
+                    self.fetch_pool_reserves_for_liquidity(pool_id).await?;
                 }
             }
             return Ok(true);
@@ -2642,8 +2637,8 @@ impl App {
 
         // Handle MoveFocus events directly for better arrow key navigation
         // But first check if we're in a dropdown that should handle its own navigation
-        match &event {
-            Event::MoveFocus(direction) => match direction {
+        if let Event::MoveFocus(direction) = &event {
+            match direction {
                 crate::tui_dex::events::FocusDirection::Up
                 | crate::tui_dex::events::FocusDirection::Down => {
                     // Check if we're focused on a dropdown that should handle its own navigation
@@ -2701,8 +2696,7 @@ impl App {
                     return Ok(true);
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
 
         // Handle Enter key for admin screen navigation and selections
@@ -4568,7 +4562,7 @@ impl App {
 
             // Check if the display name matches the shortened version (fallback)
             let shortened = if denom.len() > 15 {
-                if let Some(last_part) = denom.split('/').last() {
+                if let Some(last_part) = denom.split('/').next_back() {
                     last_part.to_string()
                 } else {
                     format!("{}...", &denom[..10])
@@ -4604,7 +4598,7 @@ impl App {
             d if d.starts_with("factory/") && d.contains("/uOSMO") => "OSMO".to_string(),
             _ => {
                 // For other factory tokens, try to extract the last part
-                if let Some(last_part) = denom.split('/').last() {
+                if let Some(last_part) = denom.split('/').next_back() {
                     // Remove 'u' prefix if it exists and the rest looks like a symbol
                     if last_part.starts_with('u') && last_part.len() > 1 {
                         last_part[1..].to_string()
@@ -4717,7 +4711,7 @@ impl App {
         crate::tui_dex::utils::logger::log_info(
             "=== EXECUTE REAL SWAP - BLOCKCHAIN TRANSACTION ===",
         );
-        crate::tui_dex::utils::logger::log_info(&format!("Starting blockchain swap execution:"));
+        crate::tui_dex::utils::logger::log_info("Starting blockchain swap execution:");
         crate::tui_dex::utils::logger::log_info(&format!("  From Asset: {}", from_asset));
         crate::tui_dex::utils::logger::log_info(&format!("  To Asset: {}", to_asset));
         crate::tui_dex::utils::logger::log_info(&format!("  Amount: {}", amount));
@@ -4771,7 +4765,7 @@ impl App {
                     pool_id_str
                 ));
                 crate::tui_dex::utils::logger::log_error("Available pools in cache:");
-                for (cached_pool_id, _) in &self.state.pool_cache {
+                for cached_pool_id in self.state.pool_cache.keys() {
                     crate::tui_dex::utils::logger::log_error(&format!("  - {}", cached_pool_id));
                 }
                 self.set_error_with_type(
@@ -4846,7 +4840,7 @@ impl App {
 
         // Execute the swap using actual denominations
         crate::tui_dex::utils::logger::log_info("=== CALLING BLOCKCHAIN SWAP METHOD ===");
-        crate::tui_dex::utils::logger::log_info(&format!("Calling client.swap() with parameters:"));
+        crate::tui_dex::utils::logger::log_info("Calling client.swap() with parameters:");
         crate::tui_dex::utils::logger::log_info(&format!("  Pool ID: {}", pool_id_str));
         crate::tui_dex::utils::logger::log_info(&format!(
             "  Offer Asset: {} {}",
@@ -5221,7 +5215,7 @@ impl App {
 
         // Get the "to" token from the selected pool
         let to_token = if let Some(pool_name) = swap_state.pool_dropdown.get_selected_label() {
-            crate::tui_dex::screens::swap::determine_to_token_from_pool(&pool_name, &from_token)
+            crate::tui_dex::screens::swap::determine_to_token_from_pool(pool_name, from_token)
         } else {
             "Unknown".to_string()
         };
@@ -5286,7 +5280,7 @@ impl App {
 
                 // Check if the token name matches the shortened version (fallback)
                 let shortened = if denom.len() > 15 {
-                    if let Some(last_part) = denom.split('/').last() {
+                    if let Some(last_part) = denom.split('/').next_back() {
                         last_part.to_string()
                     } else {
                         format!("{}...", &denom[..10])
@@ -5302,7 +5296,7 @@ impl App {
         }
 
         // Search through all balances to find matching denominations using symbol mapping
-        for (denom, _) in &self.state.balances {
+        for denom in self.state.balances.keys() {
             let symbol = self.denom_to_symbol(denom);
             if symbol == token_name {
                 return Some(denom.clone());
@@ -5313,7 +5307,7 @@ impl App {
                 return Some(denom.clone());
             }
 
-            if let Some(last_part) = denom.split('/').last() {
+            if let Some(last_part) = denom.split('/').next_back() {
                 if last_part == token_name {
                     return Some(denom.clone());
                 }
@@ -5413,7 +5407,7 @@ impl App {
         if let Some(from_asset) = swap_state.from_token_dropdown.get_selected_value() {
             // Get the to_asset from the pool selection
             let to_asset = if let Some(pool_name) = swap_state.pool_dropdown.get_selected_label() {
-                crate::tui_dex::screens::swap::determine_to_token_from_pool(&pool_name, &from_asset)
+                crate::tui_dex::screens::swap::determine_to_token_from_pool(pool_name, from_asset)
             } else {
                 "Unknown".to_string()
             };

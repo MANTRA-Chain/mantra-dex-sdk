@@ -422,73 +422,71 @@ impl MantraClient {
         self.protocol_registry = ProtocolRegistry::new();
 
         // Reinitialize DEX protocol if enabled
-        if self.config_manager.is_protocol_enabled(&ProtocolId::Dex) {
-            if self.dex_protocol.is_some() {
-                let mut dex = DexProtocol::new();
-                dex.initialize(self.rpc_client.clone()).await?;
-                let dex_arc = Arc::new(dex);
-                self.protocol_registry.register(dex_arc.clone());
-                self.dex_protocol = Some(dex_arc);
-            }
+        if self.config_manager.is_protocol_enabled(&ProtocolId::Dex) && self.dex_protocol.is_some()
+        {
+            let mut dex = DexProtocol::new();
+            dex.initialize(self.rpc_client.clone()).await?;
+            let dex_arc = Arc::new(dex);
+            self.protocol_registry.register(dex_arc.clone());
+            self.dex_protocol = Some(dex_arc);
         }
 
         // Reinitialize Skip protocol if enabled
-        if self.config_manager.is_protocol_enabled(&ProtocolId::Skip) {
-            if self.skip_protocol.is_some() {
-                let mut skip = SkipProtocol::new();
-                skip.initialize(self.rpc_client.clone()).await?;
+        if self.config_manager.is_protocol_enabled(&ProtocolId::Skip)
+            && self.skip_protocol.is_some()
+        {
+            let mut skip = SkipProtocol::new();
+            skip.initialize(self.rpc_client.clone()).await?;
 
-                // Update contract addresses with validation
-                if let Ok(entry_point_addr) = self
-                    .config_manager
-                    .get_contract_address(&ContractType::SkipEntryPoint)
-                {
-                    if let Err(e) = validate_contract_address(&entry_point_addr) {
-                        warn!(
-                            contract_address = %entry_point_addr,
-                            error = %e,
-                            "Invalid Skip entry point contract address during reinit, skipping"
-                        );
-                    } else {
-                        skip.set_contract_address(entry_point_addr);
-                    }
+            // Update contract addresses with validation
+            if let Ok(entry_point_addr) = self
+                .config_manager
+                .get_contract_address(&ContractType::SkipEntryPoint)
+            {
+                if let Err(e) = validate_contract_address(&entry_point_addr) {
+                    warn!(
+                        contract_address = %entry_point_addr,
+                        error = %e,
+                        "Invalid Skip entry point contract address during reinit, skipping"
+                    );
+                } else {
+                    skip.set_contract_address(entry_point_addr);
                 }
-
-                let skip_arc = Arc::new(skip);
-                self.protocol_registry.register(skip_arc.clone());
-                self.skip_protocol = Some(skip_arc);
             }
+
+            let skip_arc = Arc::new(skip);
+            self.protocol_registry.register(skip_arc.clone());
+            self.skip_protocol = Some(skip_arc);
         }
 
         // Reinitialize ClaimDrop protocol if enabled
         if self
             .config_manager
             .is_protocol_enabled(&ProtocolId::ClaimDrop)
+            && self.claimdrop_protocol.is_some()
         {
-            if self.claimdrop_protocol.is_some() {
-                let mut claimdrop = ClaimdropProtocol::new();
-                claimdrop.initialize(self.rpc_client.clone()).await?;
+            let mut claimdrop = ClaimdropProtocol::new();
+            claimdrop.initialize(self.rpc_client.clone()).await?;
 
-                // Update factory address with validation
-                if let Ok(factory_addr) = self
-                    .config_manager
-                    .get_contract_address(&ContractType::ClaimdropFactory)
-                {
-                    if let Err(e) = validate_contract_address(&factory_addr) {
-                        warn!(
-                            contract_address = %factory_addr,
-                            error = %e,
-                            "Invalid ClaimDrop factory address during reinit, skipping"
-                        );
-                    } else {
-                        claimdrop.set_factory_address(factory_addr);
-                    }
+            // Update factory address with validation
+            if let Ok(factory_addr) = self
+                .config_manager
+                .get_contract_address(&ContractType::ClaimdropFactory)
+            {
+                if let Err(e) = validate_contract_address(&factory_addr) {
+                    warn!(
+                        contract_address = %factory_addr,
+                        error = %e,
+                        "Invalid ClaimDrop factory address during reinit, skipping"
+                    );
+                } else {
+                    claimdrop.set_factory_address(factory_addr);
                 }
-
-                let claimdrop_arc = Arc::new(claimdrop);
-                self.protocol_registry.register(claimdrop_arc.clone());
-                self.claimdrop_protocol = Some(claimdrop_arc);
             }
+
+            let claimdrop_arc = Arc::new(claimdrop);
+            self.protocol_registry.register(claimdrop_arc.clone());
+            self.claimdrop_protocol = Some(claimdrop_arc);
         }
 
         Ok(())
@@ -533,13 +531,31 @@ impl MantraClient {
     /// Get EVM client for Ethereum Virtual Machine operations
     #[cfg(feature = "evm")]
     pub async fn evm(&self) -> Result<crate::protocols::evm::client::EvmClient, Error> {
-        // Get EVM configuration from protocol registry
-        // TODO: Extract RPC URL and chain ID from configuration
-        // For now, use placeholder values - actual config loading would be implemented
-        let rpc_url = "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"; // Placeholder
-        let chain_id = 1; // Ethereum mainnet
+        // Get EVM configuration from ConfigurationManager
+        let evm_rpc_url = self.config_manager
+            .env_config
+            .network
+            .evm_rpc_url
+            .clone()
+            .ok_or_else(|| Error::Config(
+                "EVM RPC URL not configured. Set MANTRA_NETWORK_EVM_RPC_URL environment variable or configure in network.toml".to_string()
+            ))?;
 
-        let client = crate::protocols::evm::client::EvmClient::new(rpc_url, chain_id).await?;
+        let evm_chain_id = self.config_manager
+            .env_config
+            .network
+            .evm_chain_id
+            .ok_or_else(|| Error::Config(
+                "EVM chain ID not configured. Set MANTRA_NETWORK_EVM_CHAIN_ID environment variable or configure in network.toml".to_string()
+            ))?;
+
+        tracing::debug!(
+            "Creating EVM client with RPC URL: {}, chain ID: {}",
+            evm_rpc_url,
+            evm_chain_id
+        );
+
+        let client = crate::protocols::evm::client::EvmClient::new(&evm_rpc_url, evm_chain_id).await?;
         Ok(client)
     }
 

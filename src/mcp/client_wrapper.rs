@@ -98,9 +98,9 @@ impl McpClientWrapper {
                                 McpServerError::Mcp(format!("Failed to get balances: {}", e))
                             })
                         } else {
-                            return Err(McpServerError::Validation(
+                            Err(McpServerError::Validation(
                                 "No wallet available for balance query".to_string(),
-                            ));
+                            ))
                         }
                     } else {
                         client.get_balances().await.map_err(|e| {

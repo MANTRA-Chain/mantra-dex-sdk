@@ -11,7 +11,7 @@ name = "mantra-dukong"
 rpc_url = "https://rpc.dukong.mantrachain.io/"
 chain_id = "mantra-dukong"
 evm_rpc_url = "https://evm.dukong.mantrachain.io"
-evm_chain_id = "mantra-dukong-evm-1"
+evm_chain_id = 5887
 
 [transport]
 type = "stdio"

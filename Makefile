@@ -61,6 +61,34 @@ audit: ## Security audit
 outdated: ## Check for outdated dependencies
 	cargo outdated
 
+# AST-grep semantic analysis
+ast-scan: ## Run all AST-grep semantic analysis rules
+	@command -v ast-grep >/dev/null 2>&1 || { echo "ast-grep not installed. Run: cargo install ast-grep"; exit 1; }
+	ast-grep scan
+
+ast-security: ## Check security patterns with AST-grep
+	@command -v ast-grep >/dev/null 2>&1 || { echo "ast-grep not installed. Run: cargo install ast-grep"; exit 1; }
+	ast-grep scan -c rules/security.yml
+
+ast-errors: ## Check error handling patterns
+	@command -v ast-grep >/dev/null 2>&1 || { echo "ast-grep not installed. Run: cargo install ast-grep"; exit 1; }
+	ast-grep scan -c rules/error-handling.yml
+
+ast-protocols: ## Check protocol implementation patterns
+	@command -v ast-grep >/dev/null 2>&1 || { echo "ast-grep not installed. Run: cargo install ast-grep"; exit 1; }
+	ast-grep scan -c rules/protocol-patterns.yml
+
+ast-quality: ## Check code quality patterns
+	@command -v ast-grep >/dev/null 2>&1 || { echo "ast-grep not installed. Run: cargo install ast-grep"; exit 1; }
+	ast-grep scan -c rules/code-quality.yml
+
+ast-todos: ## Find all TODO/FIXME comments
+	@echo "=== TODO Comments ==="
+	@grep -rn "TODO:" src/ tests/ 2>/dev/null || echo "No TODO comments found"
+	@echo ""
+	@echo "=== FIXME Comments ==="
+	@grep -rn "FIXME:" src/ tests/ 2>/dev/null || echo "No FIXME comments found"
+
 # Clean targets
 clean: ## Clean build artifacts
 	cargo clean
@@ -212,7 +240,16 @@ setup: ## Setup development environment
 # Quick commands
 quick-test: format-check lint test ## Run quick quality checks
 
-full-check: quick-test test-coverage audit ## Run comprehensive checks
+full-check: quick-test test-coverage audit ast-scan-ci ## Run comprehensive checks
+
+ast-scan-ci: ## Run AST-grep if available (CI-friendly)
+	@if command -v ast-grep >/dev/null 2>&1; then \
+		echo "Running AST-grep semantic analysis..."; \
+		ast-grep scan; \
+	else \
+		echo "⚠️  AST-grep not installed, skipping semantic analysis"; \
+		echo "Install with: cargo install ast-grep"; \
+	fi
 
 ci-build: clean build-all test-integration ## Simulate CI build
 

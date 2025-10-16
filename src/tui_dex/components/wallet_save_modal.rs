@@ -5,12 +5,11 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, Gauge, Paragraph},
 };
 use tui_input::Input;
 
 use super::password_input::{PasswordInput, PasswordValidation};
-use crate::wallet::WalletStorage;
 
 /// Current step in the wallet save process
 #[derive(Debug, Clone, Copy, PartialEq)]

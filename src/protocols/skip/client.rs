@@ -103,7 +103,7 @@ impl SkipClient {
 
         let response = self
             .http_client
-            .post(&format!("{}/v1/fungible/route", self.skip_api_base_url))
+            .post(format!("{}/v1/fungible/route", self.skip_api_base_url))
             .json(&request)
             .send()
             .await
@@ -146,7 +146,7 @@ impl SkipClient {
         // Query Skip API for transfer status
         let response = self
             .http_client
-            .get(&format!("{}/v1/tx/track", self.skip_api_base_url))
+            .get(format!("{}/v1/tx/track", self.skip_api_base_url))
             .query(&[("tx_id", transfer_id)])
             .send()
             .await
@@ -183,7 +183,7 @@ impl SkipClient {
     pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>, Error> {
         let response = self
             .http_client
-            .get(&format!("{}/v1/info/chains", self.skip_api_base_url))
+            .get(format!("{}/v1/info/chains", self.skip_api_base_url))
             .send()
             .await
             .map_err(|e| Error::Skip(format!("Failed to get supported chains: {}", e)))?;
@@ -641,7 +641,7 @@ impl SkipClient {
         // Query Skip API for asset verification
         let response = self
             .http_client
-            .get(&format!("{}/v1/fungible/assets", self.skip_api_base_url))
+            .get(format!("{}/v1/fungible/assets", self.skip_api_base_url))
             .query(&[("chain_id", &asset.chain), ("denom", &asset.denom)])
             .send()
             .await

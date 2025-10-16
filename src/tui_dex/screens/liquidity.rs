@@ -9,7 +9,6 @@ use crate::tui_dex::{
     components::{
         forms::{InputType, TextInput},
         header::render_header,
-        modals::{render_modal, ModalState},
         navigation::render_navigation,
         simple_list::{ListEvent, SimpleList, SimpleListOption},
         status_bar::render_status_bar,
@@ -21,7 +20,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs, Wrap},
     Frame,
 };
 use tui_input::InputRequest;

@@ -527,7 +527,7 @@ fn render_network_step(frame: &mut Frame, area: Rect, wizard_state: &WizardState
     frame.render_widget(explanation_widget, chunks[0]);
 
     // Network options
-    let networks = vec![
+    let networks = [
         (NetworkEnvironment::Testnet, "🧪 Recommended for new users"),
         (NetworkEnvironment::Mainnet, "💰 Real trading environment"),
     ];

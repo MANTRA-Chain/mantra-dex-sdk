@@ -99,14 +99,16 @@ impl Erc721 {
         from: Address,
         to: Address,
         token_id: U256,
-    ) -> Result<(), Error> {
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC721::transferFromCall {
             from,
             to,
             tokenId: token_id,
         };
-        self.client.send_contract_call(self.address, call).await?;
-        Ok(())
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 
     /// Safe transfer token from one address to another
@@ -115,14 +117,16 @@ impl Erc721 {
         from: Address,
         to: Address,
         token_id: U256,
-    ) -> Result<(), Error> {
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC721::safeTransferFrom_0Call {
             from,
             to,
             tokenId: token_id,
         };
-        self.client.send_contract_call(self.address, call).await?;
-        Ok(())
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 
     /// Safe transfer token with additional data
@@ -132,25 +136,33 @@ impl Erc721 {
         to: Address,
         token_id: U256,
         data: Vec<u8>,
-    ) -> Result<(), Error> {
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC721::safeTransferFrom_1Call {
             from,
             to,
             tokenId: token_id,
             data: data.into(),
         };
-        self.client.send_contract_call(self.address, call).await?;
-        Ok(())
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 
     /// Approve an address to transfer a specific token
-    pub async fn approve(&self, to: Address, token_id: U256) -> Result<(), Error> {
+    pub async fn approve(
+        &self,
+        to: Address,
+        token_id: U256,
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC721::approveCall {
             to,
             tokenId: token_id,
         };
-        self.client.send_contract_call(self.address, call).await?;
-        Ok(())
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 
     /// Set approval for all tokens
@@ -158,9 +170,11 @@ impl Erc721 {
         &self,
         operator: Address,
         approved: bool,
-    ) -> Result<(), Error> {
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC721::setApprovalForAllCall { operator, approved };
-        self.client.send_contract_call(self.address, call).await?;
-        Ok(())
+        self.client
+            .send_contract_call(self.address, call, wallet, None)
+            .await
     }
 }

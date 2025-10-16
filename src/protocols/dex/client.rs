@@ -154,7 +154,7 @@ impl MantraDexClient {
             .latest_block()
             .await
             .map_err(|e| Error::Rpc(format!("Failed to get last block height: {}", e)))?;
-        Ok(height.block.header.height.value() as u64)
+        Ok(height.block.header.height.value())
     }
 
     /// Get the Wallet balances
@@ -1428,8 +1428,6 @@ impl MantraDexClient {
     ///
     /// * Returns `FeeValidation` error if total fees exceed 20%
     /// * Returns `FeeValidation` error if any individual fee is negative
-    ///
-
     pub fn create_validated_pool_fees(
         &self,
         protocol_fee: cosmwasm_std::Decimal,
@@ -1467,8 +1465,7 @@ impl MantraDexClient {
         self.config
             .contracts
             .skip_mantra_dex_adapter
-            .as_ref()
-            .map(|s| s.as_str())
+            .as_deref()
             .ok_or_else(|| {
                 Error::Other("Skip Mantra DEX adapter contract address not configured".to_string())
             })

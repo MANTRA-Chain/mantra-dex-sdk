@@ -84,6 +84,8 @@ serde_bytes = "0.11.17"
 regex = "1.10"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 url = "2.4"
+zeroize = { version = "1.8", features = ["derive"] }
+secrecy = "0.8"
 
 # TUI dependencies - optional via "tui" feature
 ratatui = { version = "0.29.0", features = [

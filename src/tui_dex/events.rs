@@ -536,9 +536,9 @@ impl AsyncBlockchainProcessor {
 
                     Ok(ProvideResultWrapper {
                         txhash: tx_response.txhash,
-                        result: Some(format!(
-                            "LP tokens received (check transaction for details)"
-                        )),
+                        result: Some(
+                            "LP tokens received (check transaction for details)".to_string(),
+                        ),
                         lp_tokens_received,
                         lp_token_denom: Some(lp_token_denom),
                         pool_id: pool_id.clone(),
@@ -863,7 +863,9 @@ impl AsyncBlockchainProcessor {
 
                     Ok(ProvideResultWrapper {
                         txhash: tx_response.txhash,
-                        result: Some(format!("Assets withdrawn (check transaction for details)")),
+                        result: Some(
+                            "Assets withdrawn (check transaction for details)".to_string(),
+                        ),
                         lp_tokens_received: None,
                         lp_token_denom: None,
                         pool_id: pool_id.clone(),

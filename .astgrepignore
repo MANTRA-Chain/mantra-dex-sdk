@@ -1,0 +1,57 @@
+# AST-grep ignore patterns
+# Ignore files and directories that don't need semantic analysis
+
+# Build artifacts
+target/
+dist/
+build/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Generated code
+*.generated.rs
+*_generated.rs
+
+# Test fixtures
+tests/fixtures/
+tests/data/
+
+# Documentation
+*.md
+docs/
+
+# Configuration files
+*.toml
+*.yaml
+*.yml
+*.json
+
+# Git
+.git/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Coverage
+coverage/
+*.profraw
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+
+# Kubernetes
+k8s/
+
+# CI/CD
+.github/
+.gitlab/

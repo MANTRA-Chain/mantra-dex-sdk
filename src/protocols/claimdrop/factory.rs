@@ -130,7 +130,7 @@ impl ClaimdropFactoryClient {
         }
 
         let response_data: R =
-            serde_json::from_slice(&result.value).map_err(|e| Error::Serialization(e))?;
+            serde_json::from_slice(&result.value).map_err(Error::Serialization)?;
 
         Ok(response_data)
     }

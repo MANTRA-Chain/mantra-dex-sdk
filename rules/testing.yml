@@ -1,0 +1,121 @@
+# Testing Patterns for MANTRA SDK
+
+rules:
+  - id: test-function-naming
+    message: "Test function should follow naming convention"
+    severity: warning
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$BODY
+      }
+    constraints:
+      NAME:
+        not:
+          regex: "^test_.*"
+    note: "Test functions should be named test_<what_is_tested>"
+
+  - id: missing-test-assertion
+    message: "Test function may be missing assertions"
+    severity: warning
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$BODY
+      }
+    not:
+      has:
+        any:
+          - pattern: "assert!"
+          - pattern: "assert_eq!"
+          - pattern: "assert_ne!"
+          - pattern: "assert_matches!"
+          - pattern: ".unwrap()"
+          - pattern: ".expect($$$MSG)"
+    note: "Test functions should include assertions or explicit error checks"
+
+  - id: test-panic-without-should-panic
+    message: "Test uses panic but missing #[should_panic]"
+    severity: error
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$BEFORE
+        panic!($$$MSG)
+        $$$AFTER
+      }
+    not:
+      has:
+        pattern: "#[should_panic]"
+    note: "Add #[should_panic] attribute for tests that expect panic"
+
+  - id: tui-test-detected
+    message: "TUI test detected - these should be manual only"
+    severity: error
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$BODY
+      }
+    has:
+      any:
+        - pattern: "ratatui"
+        - pattern: "Terminal"
+        - pattern: "Frame"
+    note: "Do not write automated tests for TUI components per CLAUDE.md"
+
+  - id: integration-test-placement
+    message: "Integration test should be in tests/ directory"
+    severity: warning
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$BODY
+      }
+    constraints:
+      NAME:
+        regex: ".*integration.*"
+    not:
+      inside:
+        pattern: |
+          mod integration {
+            $$$BODY
+          }
+    note: "Integration tests belong in tests/ directory, not src/"
+
+  - id: test-uses-unwrap
+    message: "Test uses unwrap instead of ? or expect"
+    severity: info
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$BEFORE
+        $EXPR.unwrap()
+        $$$AFTER
+      }
+    note: "Consider using ? operator or expect() with descriptive message"
+
+  - id: mock-not-cleaned-up
+    message: "Mock or test data may not be cleaned up"
+    severity: warning
+    language: rust
+    pattern: |
+      #[test]
+      fn $NAME() {
+        $$$SETUP
+        std::fs::write($$$ARGS)
+        $$$BODY
+      }
+    not:
+      has:
+        any:
+          - pattern: "std::fs::remove"
+          - pattern: "cleanup"
+          - pattern: "teardown"
+    note: "Ensure test artifacts are cleaned up"

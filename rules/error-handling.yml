@@ -1,0 +1,103 @@
+# Error Handling Patterns for MANTRA SDK
+
+rules:
+  - id: unwrap-in-production
+    message: "Avoid .unwrap() in production code"
+    severity: error
+    language: rust
+    pattern: "$EXPR.unwrap()"
+    not:
+      inside:
+        any:
+          - pattern: |
+              #[cfg(test)]
+              $$$TEST
+          - pattern: |
+              #[test]
+              fn $NAME() {
+                $$$BODY
+              }
+          - pattern: |
+              fn main() {
+                $$$BODY
+              }
+    note: "Use proper error handling with Result or expect() with descriptive message"
+
+  - id: expect-in-production
+    message: "Review .expect() usage - consider proper error handling"
+    severity: warning
+    language: rust
+    pattern: "$EXPR.expect($MSG)"
+    not:
+      inside:
+        any:
+          - pattern: |
+              #[cfg(test)]
+              $$$TEST
+          - pattern: |
+              #[test]
+              fn $NAME() {
+                $$$BODY
+              }
+    note: "Prefer ? operator or map_err() for recoverable errors"
+
+  - id: panic-in-production
+    message: "Avoid panic! in production code"
+    severity: error
+    language: rust
+    any:
+      - pattern: "panic!($$$ARGS)"
+      - pattern: "unimplemented!()"
+      - pattern: "todo!()"
+    not:
+      inside:
+        any:
+          - pattern: |
+              #[cfg(test)]
+              $$$TEST
+          - pattern: |
+              #[test]
+              fn $NAME() {
+                $$$BODY
+              }
+    note: "Return proper error types instead of panicking"
+
+  - id: silent-error-ignore
+    message: "Silent error ignored with let _ = "
+    severity: warning
+    language: rust
+    pattern: "let _ = $EXPR?"
+    note: "Explicitly handle or log ignored errors"
+
+  - id: result-unused
+    message: "Result type not used - potential error ignored"
+    severity: warning
+    language: rust
+    pattern: "$EXPR;"
+    has:
+      pattern: "Result<$$$T>"
+    not:
+      inside:
+        any:
+          - pattern: "let $VAR = $EXPR"
+          - pattern: "return $EXPR"
+          - pattern: "$EXPR?"
+    note: "Handle Result with ? operator or explicit error handling"
+
+  - id: anyhow-error-in-library
+    message: "Use MantraError instead of anyhow::Error in library code"
+    severity: error
+    language: rust
+    pattern: "anyhow::Error"
+    not:
+      inside:
+        any:
+          - pattern: |
+              mod mcp {
+                $$$BODY
+              }
+          - pattern: |
+              fn main() {
+                $$$BODY
+              }
+    note: "Library code should use typed errors (MantraError), not anyhow"

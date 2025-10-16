@@ -13,7 +13,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 #[cfg(feature = "tui-dex")]
-use mantra_dex_sdk::{
+use mantra_sdk::{
     client::MantraDexClient,
     config::MantraNetworkConfig,
     error::Error,

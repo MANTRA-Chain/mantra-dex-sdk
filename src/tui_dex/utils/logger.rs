@@ -7,6 +7,12 @@ pub struct FileLogger {
     log_file_path: PathBuf,
 }
 
+impl Default for FileLogger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileLogger {
     /// Create a new file logger
     pub fn new() -> Self {

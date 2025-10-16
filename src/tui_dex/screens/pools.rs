@@ -29,21 +29,11 @@ pub enum PoolSortBy {
 }
 
 /// Pool filter criteria
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PoolFilter {
     pub search_term: String,
     pub show_enabled_only: bool,
     pub asset_filter: Option<String>,
-}
-
-impl Default for PoolFilter {
-    fn default() -> Self {
-        Self {
-            search_term: String::new(),
-            show_enabled_only: false,
-            asset_filter: None,
-        }
-    }
 }
 
 /// Pool display data for the table
@@ -517,7 +507,7 @@ fn create_asset_pair_string(assets: &[cosmwasm_std::Coin]) -> String {
             // Extract token name from denom (e.g., "factory/..." -> shortened name)
             let denom = &asset.denom;
             if denom.len() > 20 {
-                if let Some(last_part) = denom.split('/').last() {
+                if let Some(last_part) = denom.split('/').next_back() {
                     last_part.to_string()
                 } else {
                     format!("{}...", &denom[..10])

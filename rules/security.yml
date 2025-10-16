@@ -1,0 +1,106 @@
+# Security Patterns for MANTRA SDK
+
+rules:
+  - id: unsafe-block
+    message: "Unsafe code block detected"
+    severity: warning
+    language: rust
+    pattern: |
+      unsafe {
+        $$$BODY
+      }
+    note: "Document safety invariants and review carefully"
+
+  - id: unwrap-on-secrets
+    message: "Unsafe unwrap on sensitive data"
+    severity: error
+    language: rust
+    pattern: "$EXPR.unwrap()"
+    has:
+      any:
+        - pattern: "mnemonic"
+        - pattern: "private_key"
+        - pattern: "seed"
+        - pattern: "password"
+    note: "Always handle errors when dealing with secrets"
+
+  - id: hardcoded-credentials
+    message: "Potential hardcoded credential"
+    severity: error
+    language: rust
+    any:
+      - pattern: 'let $VAR = "$SECRET"'
+      - pattern: 'const $VAR: $TYPE = "$SECRET"'
+    constraints:
+      VAR:
+        regex: ".*(KEY|SECRET|PASSWORD|TOKEN|MNEMONIC).*"
+    note: "Use environment variables or secure configuration for credentials"
+
+  - id: wallet-storage-encryption
+    message: "Ensure wallet data is encrypted before storage"
+    severity: error
+    language: rust
+    pattern: |
+      fn $NAME($$$PARAMS) {
+        $$$BEFORE
+        $STORAGE.save($$$ARGS)
+        $$$AFTER
+      }
+    has:
+      any:
+        - pattern: "mnemonic"
+        - pattern: "private_key"
+    not:
+      has:
+        any:
+          - pattern: "encrypt"
+          - pattern: "cipher"
+    note: "Wallet data must be encrypted before persistence"
+
+  - id: plaintext-logging
+    message: "Avoid logging sensitive data"
+    severity: error
+    language: rust
+    any:
+      - pattern: 'log::$LEVEL!($$$MSG, $$$ARGS)'
+      - pattern: 'println!($$$MSG, $$$ARGS)'
+      - pattern: 'eprintln!($$$MSG, $$$ARGS)'
+    has:
+      any:
+        - pattern: "mnemonic"
+        - pattern: "private_key"
+        - pattern: "seed"
+        - pattern: "password"
+    note: "Never log sensitive data like mnemonics or private keys"
+
+  - id: sql-injection-risk
+    message: "Potential SQL injection - use parameterized queries"
+    severity: error
+    language: rust
+    pattern: 'format!("$$$SQL{}", $$$VARS)'
+    has:
+      any:
+        - pattern: "SELECT"
+        - pattern: "INSERT"
+        - pattern: "UPDATE"
+        - pattern: "DELETE"
+    note: "Use parameterized queries or query builders"
+
+  - id: slippage-protection
+    message: "Ensure slippage protection in swap operations"
+    severity: error
+    language: rust
+    pattern: |
+      fn $NAME($$$PARAMS) -> $RET {
+        $$$BODY
+      }
+    constraints:
+      NAME:
+        regex: ".*swap.*"
+    not:
+      has:
+        any:
+          - pattern: "max_slippage"
+          - pattern: "slippage"
+          - pattern: "min_return"
+    note: "All swap operations must include slippage protection"

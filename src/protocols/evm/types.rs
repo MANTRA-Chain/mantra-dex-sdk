@@ -5,7 +5,6 @@ use crate::error::Error;
 /// This module provides type definitions and utilities for working with
 /// Ethereum Virtual Machine (EVM) compatible blockchains, including
 /// address handling, transaction types, and error definitions.
-
 #[cfg(feature = "evm")]
 use alloy_eips::eip2930::AccessList;
 #[cfg(feature = "evm")]
@@ -37,7 +36,12 @@ impl EthAddress {
     pub fn from_str(s: &str) -> Result<Self, Error> {
         let addr = Address::from_str(s)
             .map_err(|e| Error::Config(format!("Invalid Ethereum address: {}", e)))?;
-        // TODO: Add EIP-55 checksum validation
+
+        // Validate EIP-55 checksum if the address contains uppercase letters
+        if s.starts_with("0x") && s[2..].chars().any(|c| c.is_uppercase()) {
+            utils::validate_eip55_checksum(s)?;
+        }
+
         Ok(Self(addr))
     }
 
@@ -51,10 +55,9 @@ impl EthAddress {
         &self.0
     }
 
-    /// Convert to checksummed hex string
+    /// Convert to checksummed hex string (EIP-55)
     pub fn to_checksummed_string(&self) -> String {
-        // TODO: Implement EIP-55 checksum
-        format!("{:?}", self.0)
+        utils::to_eip55_checksum(self.0)
     }
 }
 
@@ -410,7 +413,7 @@ pub struct Eip1559FeeSuggestion {
 #[cfg(feature = "evm")]
 pub mod utils {
     use super::*;
-    use k256::ecdsa::SigningKey;
+
     use tiny_keccak::{Hasher, Keccak};
 
     /// Derive Ethereum address from a secp256k1 public key
@@ -434,33 +437,107 @@ pub mod utils {
         Ok(EthAddress::from_slice(&address_bytes))
     }
 
+    /// Convert address to EIP-55 checksummed format
+    pub fn to_eip55_checksum(address: Address) -> String {
+        let addr_hex = format!("{:x}", address);
+
+        // Keccak-256 hash of the lowercase hex address
+        let mut hasher = Keccak::v256();
+        hasher.update(addr_hex.as_bytes());
+        let mut hash = [0u8; 32];
+        hasher.finalize(&mut hash);
+
+        let mut checksummed = String::from("0x");
+        for (i, ch) in addr_hex.chars().enumerate() {
+            // If it's a letter and the corresponding hash byte is >= 8, uppercase it
+            if ch.is_alphabetic() {
+                let hash_byte = hash[i / 2];
+                let nibble = if i % 2 == 0 {
+                    hash_byte >> 4
+                } else {
+                    hash_byte & 0x0f
+                };
+                if nibble >= 8 {
+                    checksummed.push(ch.to_ascii_uppercase());
+                } else {
+                    checksummed.push(ch);
+                }
+            } else {
+                checksummed.push(ch);
+            }
+        }
+
+        checksummed
+    }
+
     /// Validate EIP-55 checksum for an Ethereum address
     pub fn validate_eip55_checksum(address: &str) -> Result<(), Error> {
-        // TODO: Implement EIP-55 checksum validation
-        // For now, just check basic format
         if !address.starts_with("0x") || address.len() != 42 {
             return Err(Error::Config("Invalid Ethereum address format".to_string()));
         }
+
+        // Parse the address to get the raw Address
+        let addr = Address::from_str(address)
+            .map_err(|e| Error::Config(format!("Invalid Ethereum address: {}", e)))?;
+
+        // Generate the correct checksum
+        let correct_checksum = to_eip55_checksum(addr);
+
+        // Compare with the provided address
+        if address != correct_checksum {
+            return Err(Error::Config(format!(
+                "Invalid EIP-55 checksum. Expected: {}, got: {}",
+                correct_checksum, address
+            )));
+        }
+
         Ok(())
     }
 
-    /// Convert wei to ether (for display purposes)
+    /// Convert wei to ether with exact precision (returns string representation)
     ///
-    /// This function converts wei to ether with proper decimal handling.
-    /// Note: For display purposes, f64 provides sufficient precision for most use cases.
-    /// For financial calculations requiring exact precision, use string-based representations.
-    pub fn wei_to_ether(wei: U256) -> f64 {
-        // Use U256 division for better precision
+    /// This function converts wei to ether without precision loss by using
+    /// string representation. For display or financial calculations requiring
+    /// exact precision, this is the recommended method.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let wei = U256::from(1234567890123456789u64);
+    /// let ether = wei_to_ether_string(wei);
+    /// assert_eq!(ether, "1.234567890123456789");
+    /// ```
+    pub fn wei_to_ether_string(wei: U256) -> String {
         let wei_multiplier = U256::from(10u64).pow(U256::from(18u64));
-        let ether_wei = wei / wei_multiplier;
+        let ether_int = wei / wei_multiplier;
         let remainder_wei = wei % wei_multiplier;
 
-        // Convert to f64 with decimal precision
-        let ether_int = ether_wei.to_string().parse::<f64>().unwrap_or(0.0);
-        let remainder = remainder_wei.to_string().parse::<f64>().unwrap_or(0.0);
-        let remainder_divisor = 1_000_000_000_000_000_000.0; // 10^18
+        if remainder_wei.is_zero() {
+            // No fractional part
+            ether_int.to_string()
+        } else {
+            // Format with fractional part, padding with zeros
+            format!("{}.{:018}", ether_int, remainder_wei)
+        }
+    }
 
-        ether_int + (remainder / remainder_divisor)
+    /// Convert wei to ether (f64 - may lose precision for large values)
+    ///
+    /// **Warning**: This function uses f64 which only has 53 bits of precision.
+    /// For values requiring exact precision, use `wei_to_ether_string` instead.
+    ///
+    /// This is provided for backwards compatibility and simple display purposes only.
+    #[deprecated(note = "Use wei_to_ether_string for exact precision")]
+    pub fn wei_to_ether(wei: U256) -> f64 {
+        // Use string conversion to avoid precision issues with large numbers
+        match wei_to_ether_string(wei).parse::<f64>() {
+            Ok(value) => value,
+            Err(_) => {
+                // Fallback for very large numbers that exceed f64 range
+                let wei_multiplier = U256::from(10u64).pow(U256::from(18u64));
+                let ether_int = wei / wei_multiplier;
+                ether_int.to_string().parse::<f64>().unwrap_or(f64::MAX)
+            }
+        }
     }
 
     /// Convert ether to wei using proper decimal arithmetic

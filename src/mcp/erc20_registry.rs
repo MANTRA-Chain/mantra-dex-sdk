@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::protocols::evm::types::EthAddress;
 use alloy_primitives::Address;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;

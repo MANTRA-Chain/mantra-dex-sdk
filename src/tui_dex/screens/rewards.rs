@@ -311,7 +311,7 @@ fn render_epoch_timeline(f: &mut Frame, area: Rect, app: &App) {
 
     for epoch in start_epoch..=current_epoch {
         let is_current = epoch == current_epoch;
-        let has_rewards = app.state.claimable_rewards.len() > 0; // Simplified check
+        let has_rewards = !app.state.claimable_rewards.is_empty(); // Simplified check
 
         let epoch_line = if is_current {
             Line::from(vec![
@@ -387,7 +387,7 @@ fn render_rewards_by_pool(rewards: &HashMap<String, Uint128>) -> Vec<Line> {
             Span::styled(pool_id, Style::default().fg(Color::Cyan)),
             Span::styled(": ", Style::default().fg(Color::White)),
             Span::styled(
-                format!("{}", format_amount(amount.u128() as u64)),
+                format_amount(amount.u128() as u64).to_string(),
                 Style::default().fg(Color::Green),
             ),
         ]));

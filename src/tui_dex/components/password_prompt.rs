@@ -11,12 +11,13 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+use zeroize::Zeroizing;
 
 /// Password prompt modal for secure wallet authentication
 #[derive(Clone)]
 pub struct PasswordPrompt {
-    /// Current password input
-    pub password: String,
+    /// Current password input (automatically zeroized on drop)
+    pub password: Zeroizing<String>,
     /// Whether password is currently visible (unmasked)
     pub password_visible: bool,
     /// Current error message if any
@@ -36,7 +37,7 @@ pub struct PasswordPrompt {
 impl Default for PasswordPrompt {
     fn default() -> Self {
         Self {
-            password: String::new(),
+            password: Zeroizing::new(String::new()),
             password_visible: false,
             error_message: None,
             failed_attempts: 0,
@@ -84,16 +85,10 @@ impl PasswordPrompt {
         self.clear_sensitive_data();
     }
 
-    /// Clear sensitive data from memory
+    /// Clear sensitive data from memory (safe with Zeroizing)
     pub fn clear_sensitive_data(&mut self) {
-        // Overwrite password with zeros for security
-        unsafe {
-            let password_bytes = self.password.as_bytes_mut();
-            for byte in password_bytes {
-                *byte = 0;
-            }
-        }
-        self.password.clear();
+        // Replace with new empty string (old one is automatically zeroized)
+        self.password = Zeroizing::new(String::new());
     }
 
     /// Toggle password visibility
@@ -151,7 +146,7 @@ impl PasswordPrompt {
             }
             KeyCode::Enter => {
                 if !self.password.is_empty() {
-                    let password = self.password.clone();
+                    let password = self.password.to_string();
                     self.hide();
                     return PasswordPromptResult::Password(password);
                 }
@@ -173,7 +168,7 @@ impl PasswordPrompt {
     /// Get display string for password (masked or visible)
     fn get_password_display(&self) -> String {
         if self.password_visible {
-            self.password.clone()
+            self.password.to_string()
         } else {
             "•".repeat(self.password.len())
         }
@@ -373,9 +368,5 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-// Implement Drop for secure memory cleanup
-impl Drop for PasswordPrompt {
-    fn drop(&mut self) {
-        self.clear_sensitive_data();
-    }
-}
+// Note: Password is automatically zeroized on drop via Zeroizing wrapper
+// No manual Drop implementation needed

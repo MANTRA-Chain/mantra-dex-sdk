@@ -503,7 +503,7 @@ pub enum WalletSelectionAction {
 /// Render the wallet selection screen (Frame-based interface for UI module)
 pub fn render_wallet_selection(frame: &mut ratatui::Frame, app: &crate::tui_dex::app::App) {
     let area = frame.area();
-    let mut buf = frame.buffer_mut();
+    let buf = frame.buffer_mut();
 
     // Access the wallet selection state and call its render method
     let mut wallet_selection_state = app.state.wallet_selection_state.clone();

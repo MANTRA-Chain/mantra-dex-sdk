@@ -1,0 +1,13 @@
+# AST-grep Configuration for MANTRA SDK
+# Run with: ast-grep scan
+
+# Rule directories
+ruleDirs:
+  - rules
+
+# Test directories
+testConfigs:
+  - testDir: rules/tests
+
+# Output configuration
+outputStyle: rich

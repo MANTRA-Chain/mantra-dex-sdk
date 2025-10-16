@@ -76,9 +76,14 @@ impl CustomContract {
     }
 
     /// Send a raw transaction to the contract
-    pub async fn send_raw(&self, data: Vec<u8>, value: U256) -> Result<B256, Error> {
+    pub async fn send_raw(
+        &self,
+        data: Vec<u8>,
+        value: U256,
+        wallet: &crate::wallet::MultiVMWallet,
+    ) -> Result<B256, Error> {
         self.client
-            .send_raw_transaction_data(self.address, data, value)
+            .send_raw_transaction_data(self.address, data, value, wallet)
             .await
     }
 

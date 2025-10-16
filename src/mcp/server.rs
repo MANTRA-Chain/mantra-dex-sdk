@@ -197,6 +197,12 @@ pub struct TransactionMonitorManager {
     monitors: Arc<RwLock<HashMap<String, TransactionMonitor>>>,
 }
 
+impl Default for TransactionMonitorManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransactionMonitorManager {
     /// Create a new transaction monitor manager
     pub fn new() -> Self {
@@ -1926,7 +1932,7 @@ impl McpServerStateData {
     ) -> McpResult<()> {
         let client = MantraDexClient::new(network_config.clone())
             .await
-            .map_err(|e| McpServerError::Sdk(e))?;
+            .map_err(McpServerError::Sdk)?;
 
         {
             let mut client_guard = self.client.lock().await;
@@ -2548,6 +2554,60 @@ impl McpToolProvider for MantraDexMcpServer {
                     }
                 }
             }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "wallet_transfer_erc20",
+                "description": "Transfer ERC-20 tokens to another address",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "token_address": {
+                            "type": "string",
+                            "description": "ERC-20 contract address"
+                        },
+                        "recipient": {
+                            "type": "string",
+                            "description": "Recipient EVM address (0x...)"
+                        },
+                        "amount": {
+                            "type": "string",
+                            "description": "Amount to transfer (will be converted using token decimals)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Optional wallet address (uses active if not provided)"
+                        }
+                    },
+                    "required": ["token_address", "recipient", "amount"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "wallet_approve_erc20",
+                "description": "Approve ERC-20 token spending for another address or contract",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "token_address": {
+                            "type": "string",
+                            "description": "ERC-20 contract address"
+                        },
+                        "spender": {
+                            "type": "string",
+                            "description": "Spender EVM address (0x...) - contract or address authorized to spend"
+                        },
+                        "amount": {
+                            "type": "string",
+                            "description": "Amount to approve (will be converted using token decimals)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Optional wallet address (uses active if not provided)"
+                        }
+                    },
+                    "required": ["token_address", "spender", "amount"]
+                }
+            }),
             // Pool Query Tools
             serde_json::json!({
                 "name": "dex_get_pools",
@@ -3036,6 +3096,111 @@ impl McpToolProvider for MantraDexMcpServer {
                     "required": ["source_asset_denom", "source_asset_amount", "source_chain", "target_asset_denom", "target_chain", "recipient"]
                 }
             }),
+            // PrimarySale Protocol Tools
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_get_sale_info",
+                "description": "Get comprehensive information about a primary sale",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_get_investor_info",
+                "description": "Get investor allocation and contribution information",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "investor_address": {
+                            "type": "string",
+                            "description": "Investor EVM address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_invest",
+                "description": "Invest mantraUSD in a primary sale",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "amount": {
+                            "type": "string",
+                            "description": "Amount of mantraUSD to invest (in human-readable units)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Wallet address to use (optional, uses active if not provided)"
+                        }
+                    },
+                    "required": ["contract_address", "amount"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_claim_refund",
+                "description": "Claim refund from a failed or cancelled sale",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Wallet address to use (optional, uses active if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_get_all_investors",
+                "description": "Get list of all investors in a sale with pagination",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "start": {
+                            "type": "integer",
+                            "description": "Starting index for pagination (default: 0)",
+                            "default": 0,
+                            "minimum": 0
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of investors to return (default: 100)",
+                            "default": 100,
+                            "minimum": 1,
+                            "maximum": 1000
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
         ]
     }
 
@@ -3067,6 +3232,10 @@ impl McpToolProvider for MantraDexMcpServer {
             "wallet_get_erc20_balance" => self.handle_get_erc20_balance(arguments).await,
             #[cfg(feature = "evm")]
             "wallet_get_all_evm_balances" => self.handle_get_all_evm_balances(arguments).await,
+            #[cfg(feature = "evm")]
+            "wallet_transfer_erc20" => self.handle_transfer_erc20(arguments).await,
+            #[cfg(feature = "evm")]
+            "wallet_approve_erc20" => self.handle_approve_erc20(arguments).await,
 
             // DEX tools
             "dex_get_pools" => self.handle_get_pools(arguments).await,
@@ -3100,6 +3269,22 @@ impl McpToolProvider for MantraDexMcpServer {
             "skip_get_supported_chains" => self.handle_skip_get_supported_chains(arguments).await,
             "skip_verify_assets" => self.handle_skip_verify_assets(arguments).await,
             "skip_estimate_fees" => self.handle_skip_estimate_fees(arguments).await,
+
+            // PrimarySale protocol tools
+            #[cfg(feature = "evm")]
+            "primary_sale_get_sale_info" => self.handle_primary_sale_get_sale_info(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_get_investor_info" => {
+                self.handle_primary_sale_get_investor_info(arguments).await
+            }
+            #[cfg(feature = "evm")]
+            "primary_sale_invest" => self.handle_primary_sale_invest(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_claim_refund" => self.handle_primary_sale_claim_refund(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_get_all_investors" => {
+                self.handle_primary_sale_get_all_investors(arguments).await
+            }
 
             _ => Err(McpServerError::UnknownTool(tool_name.to_string())),
         }
@@ -3166,7 +3351,7 @@ impl MantraDexMcpServer {
         }
 
         // Create formatted response text
-        let mut response_text = format!("📄 **Contract Addresses**\n\n");
+        let mut response_text = "📄 **Contract Addresses**\n\n".to_string();
         response_text.push_str(&format!(
             "**Network:** {}\n",
             self.state.config.network_config.network_name
@@ -3292,7 +3477,7 @@ impl MantraDexMcpServer {
         // Create simple, clean response
 
         // Create formatted response text
-        let mut response_text = format!("🌐 **Network Connectivity Check**\n\n");
+        let mut response_text = "🌐 **Network Connectivity Check**\n\n".to_string();
         response_text.push_str(&format!(
             "**Network:** {}\n",
             self.state.config.network_config.network_name
@@ -3432,7 +3617,7 @@ impl MantraDexMcpServer {
         // Create simple, clean response
 
         // Create formatted response text
-        let mut response_text = format!("🏦 **Wallet Balances**\n\n");
+        let mut response_text = "🏦 **Wallet Balances**\n\n".to_string();
         response_text.push_str(&format!("**Address:** `{}`\n", address));
         response_text.push_str(&format!("**Network:** {}\n", network));
         response_text.push_str(&format!(
@@ -3495,7 +3680,7 @@ impl MantraDexMcpServer {
         };
 
         // Create formatted response text
-        let mut response_text = format!("📱 **Wallet Management**\n\n");
+        let mut response_text = "📱 **Wallet Management**\n\n".to_string();
 
         if wallets.is_empty() {
             response_text.push_str("No wallets found in collection.\n");
@@ -3511,9 +3696,7 @@ impl MantraDexMcpServer {
             response_text.push_str("### 💼 Available Wallets:\n\n");
 
             for (address, wallet_info) in wallets.iter() {
-                let is_active = active_address
-                    .as_ref()
-                    .map_or(false, |addr| addr == address);
+                let is_active = active_address.as_ref() == Some(address);
                 let active_indicator = if is_active { " (ACTIVE)" } else { "" };
 
                 response_text.push_str(&format!(
@@ -3524,7 +3707,7 @@ impl MantraDexMcpServer {
                     "  - **Public Key:** `{}`\n",
                     wallet_info.public_key
                 ));
-                response_text.push_str("\n");
+                response_text.push('\n');
             }
         }
 
@@ -3571,7 +3754,7 @@ impl MantraDexMcpServer {
             })?;
 
         // Create formatted response text
-        let mut response_text = format!("✅ **Wallet Switched Successfully**\n\n");
+        let mut response_text = "✅ **Wallet Switched Successfully**\n\n".to_string();
         response_text.push_str(&format!("**New Active Wallet:** `{}`\n", wallet_address));
         response_text.push_str(&format!("**Public Key:** `{}`\n", wallet_info.public_key));
 
@@ -3597,7 +3780,7 @@ impl MantraDexMcpServer {
         let active_wallet = self.state.sdk_adapter.get_active_wallet_info().await?;
 
         // Create formatted response text
-        let mut response_text = format!("🔍 **Active Wallet Information**\n\n");
+        let mut response_text = "🔍 **Active Wallet Information**\n\n".to_string();
 
         match active_wallet {
             Some(wallet_info) => {
@@ -3644,7 +3827,7 @@ impl MantraDexMcpServer {
             .await?;
 
         // Create formatted response text
-        let mut response_text = format!("🔍 **Wallet Addresses**\n\n");
+        let mut response_text = "🔍 **Wallet Addresses**\n\n".to_string();
         response_text.push_str(&format!("**Cosmos Address:** `{}`\n", cosmos_address));
         response_text.push_str(&format!("**EVM Address:** `{}`\n", evm_address));
         response_text.push_str("\n*Both addresses are derived from the same private key*\n");
@@ -3767,6 +3950,94 @@ impl MantraDexMcpServer {
         }))
     }
 
+    /// Handle transfer_erc20 tool
+    #[cfg(feature = "evm")]
+    async fn handle_transfer_erc20(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling transfer_erc20 tool call");
+
+        let token_address = arguments
+            .get("token_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("token_address is required".to_string())
+            })?;
+
+        let recipient = arguments
+            .get("recipient")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("recipient is required".to_string()))?;
+
+        let amount = arguments
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("amount is required".to_string()))?;
+
+        let wallet_address = arguments
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let result = self
+            .state
+            .sdk_adapter
+            .transfer_erc20(token_address, recipient, amount, wallet_address)
+            .await?;
+
+        Ok(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": result
+            }]
+        }))
+    }
+
+    /// Handle approve_erc20 tool
+    #[cfg(feature = "evm")]
+    async fn handle_approve_erc20(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling approve_erc20 tool call");
+
+        let token_address = arguments
+            .get("token_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("token_address is required".to_string())
+            })?;
+
+        let spender = arguments
+            .get("spender")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("spender is required".to_string()))?;
+
+        let amount = arguments
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("amount is required".to_string()))?;
+
+        let wallet_address = arguments
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let result = self
+            .state
+            .sdk_adapter
+            .approve_erc20(token_address, spender, amount, wallet_address)
+            .await?;
+
+        Ok(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": result
+            }]
+        }))
+    }
+
     /// Handle add_wallet_from_mnemonic tool
     async fn handle_add_wallet_from_mnemonic(
         &self,
@@ -3817,7 +4088,7 @@ impl MantraDexMcpServer {
         }
 
         // Create formatted response text
-        let mut response_text = format!("✅ **Wallet Added Successfully**\n\n");
+        let mut response_text = "✅ **Wallet Added Successfully**\n\n".to_string();
         response_text.push_str(&format!("**Address:** `{}`\n", wallet_address));
         response_text.push_str(&format!("**Public Key:** `{}`\n", wallet_info.public_key));
         response_text.push_str(&format!("**Derivation Index:** {}\n", derivation_index));
@@ -3869,7 +4140,7 @@ impl MantraDexMcpServer {
         self.state.sdk_adapter.remove_wallet(wallet_address).await?;
 
         // Create formatted response text
-        let mut response_text = format!("✅ **Wallet Removed Successfully**\n\n");
+        let mut response_text = "✅ **Wallet Removed Successfully**\n\n".to_string();
         response_text.push_str(&format!("**Removed Address:** `{}`\n", wallet_address));
 
         if let Some(info) = wallet_info {
@@ -3947,7 +4218,7 @@ impl MantraDexMcpServer {
         let network = &self.state.config.network_config.network_name;
 
         // Create formatted response text
-        let mut response_text = format!("🏊 **Liquidity Pools**\n\n");
+        let mut response_text = "🏊 **Liquidity Pools**\n\n".to_string();
         response_text.push_str(&format!("**Network:** {}\n", network));
         response_text.push_str(&format!("**Total Pools Found:** {}\n", count));
 
@@ -3959,7 +4230,7 @@ impl MantraDexMcpServer {
             response_text.push_str(&format!("**Starting After:** {}\n", start_after));
         }
 
-        response_text.push_str("\n");
+        response_text.push('\n');
 
         if !pools_array.is_empty() {
             response_text.push_str("### 💧 Available Pools:\n\n");
@@ -4228,7 +4499,7 @@ impl MantraDexMcpServer {
             ));
         }
 
-        if timeout_secs < 30 || timeout_secs > 3600 {
+        if !(30..=3600).contains(&timeout_secs) {
             return Err(McpServerError::InvalidArguments(
                 "Timeout must be between 30 and 3600 seconds".to_string(),
             ));
@@ -4705,6 +4976,78 @@ impl MantraDexMcpServer {
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling skip_estimate_fees tool call");
         self.state.sdk_adapter.skip_estimate_fees(arguments).await
+    }
+
+    // =============================================================================
+    // PrimarySale Protocol Handlers
+    // =============================================================================
+
+    /// Handle primary_sale_get_sale_info tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_get_sale_info(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_get_sale_info tool call");
+        self.state
+            .sdk_adapter
+            .primary_sale_get_sale_info(arguments)
+            .await
+    }
+
+    /// Handle primary_sale_get_investor_info tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_get_investor_info(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(
+            ?arguments,
+            "Handling primary_sale_get_investor_info tool call"
+        );
+        self.state
+            .sdk_adapter
+            .primary_sale_get_investor_info(arguments)
+            .await
+    }
+
+    /// Handle primary_sale_invest tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_invest(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_invest tool call");
+        self.state.sdk_adapter.primary_sale_invest(arguments).await
+    }
+
+    /// Handle primary_sale_claim_refund tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_claim_refund(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_claim_refund tool call");
+        self.state
+            .sdk_adapter
+            .primary_sale_claim_refund(arguments)
+            .await
+    }
+
+    /// Handle primary_sale_get_all_investors tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_get_all_investors(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(
+            ?arguments,
+            "Handling primary_sale_get_all_investors tool call"
+        );
+        self.state
+            .sdk_adapter
+            .primary_sale_get_all_investors(arguments)
+            .await
     }
 }
 

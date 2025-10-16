@@ -12,7 +12,6 @@ use alloy_primitives::{Address, Bytes, B256, U256};
 ///
 /// Provides high-level interface for interacting with EVM-compatible blockchains,
 /// including contract calls, transaction submission, event querying, and gas estimation.
-
 #[cfg(feature = "evm")]
 use alloy_provider::{PendingTransactionBuilder, Provider, ProviderBuilder};
 #[cfg(feature = "evm")]
@@ -62,6 +61,7 @@ impl EvmClient {
         let result = self
             .provider
             .call(&tx_request)
+            .block(BlockId::Number(block))
             .await
             .map_err(|e| EvmError::RpcError(e.to_string()))?;
 
@@ -163,6 +163,22 @@ impl EvmClient {
 
     /// Query event logs
     pub async fn get_logs(&self, filter: EventFilter) -> Result<Vec<Log>, Error> {
+        // Convert topics to alloy format
+        let topics: [alloy_rpc_types_eth::Topic; 4] = {
+            let mut topic_array = [
+                alloy_rpc_types_eth::Topic::default(),
+                alloy_rpc_types_eth::Topic::default(),
+                alloy_rpc_types_eth::Topic::default(),
+                alloy_rpc_types_eth::Topic::default(),
+            ];
+            for (i, topic_opt) in filter.topics.iter().enumerate().take(4) {
+                if let Some(topic) = topic_opt {
+                    topic_array[i] = alloy_rpc_types_eth::Topic::from(*topic);
+                }
+            }
+            topic_array
+        };
+
         let alloy_filter = Filter {
             block_option: alloy_rpc_types_eth::FilterBlockOption::Range {
                 from_block: filter.from_block.as_ref().and_then(|b| b.parse().ok()),
@@ -175,7 +191,7 @@ impl EvmClient {
                     .map(|addr| addr.0)
                     .collect::<Vec<_>>(),
             ),
-            topics: Default::default(), // TODO: Implement proper topic filtering
+            topics,
         };
 
         let logs = self
@@ -201,6 +217,7 @@ impl EvmClient {
         let balance = self
             .provider
             .get_balance(address.0)
+            .block_id(BlockId::Number(block_tag))
             .await
             .map_err(|e| EvmError::RpcError(e.to_string()))?;
 
@@ -285,10 +302,13 @@ impl EvmClient {
             builder = builder.with_timeout(Some(timeout));
         }
 
-        builder
-            .get_receipt()
-            .await
-            .map_err(|e| Error::Other(format!("Pending transaction error: {e}")))
+        builder.get_receipt().await.map_err(|e| {
+            Error::Evm(format!(
+                "Failed to get receipt for transaction {}: {}. \
+                Transaction may have timed out or failed to confirm after {} confirmations.",
+                tx_hash, e, confirmations
+            ))
+        })
     }
 
     /// Simulate an EIP-1559 transaction via eth_call.
@@ -337,6 +357,7 @@ impl EvmClient {
         let code = self
             .provider
             .get_code_at(address.0)
+            .block_id(BlockId::Number(block_tag))
             .await
             .map_err(|e| EvmError::RpcError(e.to_string()))?;
 
@@ -358,6 +379,7 @@ impl EvmClient {
         let storage = self
             .provider
             .get_storage_at(address.0, slot)
+            .block_id(BlockId::Number(block_tag))
             .await
             .map_err(|e| EvmError::RpcError(e.to_string()))?;
 
@@ -389,7 +411,7 @@ impl EvmClient {
         let data = call.abi_encode();
         let request = EvmCallRequest {
             to: EthAddress(contract_address),
-            data: data.into(),
+            data,
             block: None,
         };
         let result = self.call(request).await?;
@@ -401,20 +423,81 @@ impl EvmClient {
     /// Send a contract transaction
     pub async fn send_contract_call<T: SolCall>(
         &self,
-        _contract_address: Address,
-        _call: T,
-    ) -> Result<(), Error> {
-        // TODO: Implement transaction sending
-        Err(Error::NotImplemented(
-            "Transaction sending not yet implemented".to_string(),
-        ))
+        contract_address: Address,
+        call: T,
+        wallet: &crate::wallet::MultiVMWallet,
+        value: Option<U256>,
+    ) -> Result<B256, Error> {
+        // 1. Encode contract call data
+        let data = call.abi_encode();
+
+        // 2. Get sender address and nonce
+        let from = EthAddress(wallet.evm_address()?);
+        let nonce = self.get_pending_nonce(from.clone()).await?;
+
+        // 3. Estimate gas with proper from address
+        let tx_request = EvmTransactionRequest {
+            to: Some(EthAddress(contract_address)),
+            data: data.clone(),
+            value: value.unwrap_or(U256::ZERO),
+            gas_limit: None,
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+            chain_id: self.chain_id,
+            nonce: None,
+            access_list: Default::default(),
+            from: None,
+        };
+        let gas_limit = self
+            .estimate_gas_with_options(tx_request, Some(from), None)
+            .await?;
+
+        // 4. Get fee suggestion (EIP-1559)
+        let fee_data = self.fee_suggestion().await?;
+
+        // 5. Build EIP-1559 transaction
+        let tx = Eip1559Transaction::new(self.chain_id, nonce)
+            .to(Some(contract_address))
+            .data(Bytes::from(data))
+            .value(value.unwrap_or(U256::ZERO))
+            .gas_limit(gas_limit)
+            .max_fee_per_gas(fee_data.max_fee_per_gas.try_into().map_err(|_| {
+                Error::Evm(format!(
+                    "Max fee per gas ({}) exceeds u128 maximum for EIP-1559 transaction",
+                    fee_data.max_fee_per_gas
+                ))
+            })?)
+            .max_priority_fee_per_gas(fee_data.max_priority_fee_per_gas.try_into().map_err(
+                |_| {
+                    Error::Evm(format!(
+                    "Max priority fee per gas ({}) exceeds u128 maximum for EIP-1559 transaction",
+                    fee_data.max_priority_fee_per_gas
+                ))
+                },
+            )?);
+
+        // 6. Sign transaction
+        let tx_hash = tx.signature_hash();
+        let (sig, recid) = wallet.sign_ethereum_tx(tx_hash.as_ref())?;
+
+        // 7. Convert k256 signature to alloy format
+        let signature = crate::wallet::MultiVMWallet::to_alloy_signature(&sig, recid);
+
+        // 8. Create signed transaction
+        let signed_tx = SignedEip1559Transaction::new(
+            tx.clone().into_signed(signature),
+            tx.encode_signed(&signature),
+        );
+
+        // 9. Broadcast
+        self.send_raw_transaction(&signed_tx).await
     }
 
     /// Call raw contract data
     pub async fn call_raw(&self, address: Address, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         let request = EvmCallRequest {
             to: EthAddress(address),
-            data: data.into(),
+            data,
             block: None,
         };
         self.call(request).await
@@ -423,14 +506,64 @@ impl EvmClient {
     /// Send raw transaction data
     pub async fn send_raw_transaction_data(
         &self,
-        _address: Address,
-        _data: Vec<u8>,
-        _value: U256,
+        address: Address,
+        data: Vec<u8>,
+        value: U256,
+        wallet: &crate::wallet::MultiVMWallet,
     ) -> Result<B256, Error> {
-        // TODO: Implement raw transaction sending
-        Err(Error::NotImplemented(
-            "Raw transaction sending not yet implemented".to_string(),
-        ))
+        // Similar flow to send_contract_call, but with raw data
+        let from = EthAddress(wallet.evm_address()?);
+        let nonce = self.get_pending_nonce(from.clone()).await?;
+
+        let tx_request = EvmTransactionRequest {
+            to: Some(EthAddress(address)),
+            data: data.clone(),
+            value,
+            gas_limit: None,
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+            chain_id: self.chain_id,
+            nonce: None,
+            access_list: Default::default(),
+            from: None,
+        };
+        let gas_limit = self
+            .estimate_gas_with_options(tx_request, Some(from), None)
+            .await?;
+        let fee_data = self.fee_suggestion().await?;
+
+        let tx = Eip1559Transaction::new(self.chain_id, nonce)
+            .to(Some(address))
+            .data(Bytes::from(data))
+            .value(value)
+            .gas_limit(gas_limit)
+            .max_fee_per_gas(fee_data.max_fee_per_gas.try_into().map_err(|_| {
+                Error::Evm(format!(
+                    "Max fee per gas ({}) exceeds u128 maximum for EIP-1559 transaction",
+                    fee_data.max_fee_per_gas
+                ))
+            })?)
+            .max_priority_fee_per_gas(fee_data.max_priority_fee_per_gas.try_into().map_err(
+                |_| {
+                    Error::Evm(format!(
+                    "Max priority fee per gas ({}) exceeds u128 maximum for EIP-1559 transaction",
+                    fee_data.max_priority_fee_per_gas
+                ))
+                },
+            )?);
+
+        let tx_hash = tx.signature_hash();
+        let (sig, recid) = wallet.sign_ethereum_tx(tx_hash.as_ref())?;
+
+        // Convert k256 signature to alloy format
+        let signature = crate::wallet::MultiVMWallet::to_alloy_signature(&sig, recid);
+
+        let signed_tx = SignedEip1559Transaction::new(
+            tx.clone().into_signed(signature),
+            tx.encode_signed(&signature),
+        );
+
+        self.send_raw_transaction(&signed_tx).await
     }
 
     /// Create an ERC-20 helper for the given contract address
@@ -441,6 +574,11 @@ impl EvmClient {
     /// Create an ERC-721 helper for the given contract address
     pub fn erc721(&self, address: Address) -> crate::protocols::evm::contracts::Erc721 {
         crate::protocols::evm::contracts::Erc721::new(self.clone(), address)
+    }
+
+    /// Create a PrimarySale helper for the given contract address
+    pub fn primary_sale(&self, address: Address) -> crate::protocols::evm::contracts::PrimarySale {
+        crate::protocols::evm::contracts::PrimarySale::new(self.clone(), address)
     }
 }
 

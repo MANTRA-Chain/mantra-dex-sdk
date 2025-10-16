@@ -146,9 +146,8 @@ pub async fn run_tui(client: MantraDexClient, config: MantraNetworkConfig) -> Re
     }
 
     // Initialize terminal
-    let mut terminal = init_terminal().map_err(|e| {
+    let mut terminal = init_terminal().inspect_err(|e| {
         emergency_terminal_cleanup();
-        e
     })?;
 
     // Create application state

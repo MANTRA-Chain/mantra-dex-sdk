@@ -8,7 +8,6 @@ use crate::protocols::evm::types::EthAddress;
 ///
 /// Provides high-level methods for interacting with ERC-721 compatible NFTs,
 /// including ownership queries, transfers, and metadata.
-
 #[cfg(feature = "evm")]
 use alloy_primitives::{Address, U256};
 #[cfg(feature = "evm")]

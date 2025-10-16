@@ -19,7 +19,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Wrap},
     Frame,
 };
 use tui_input::InputRequest;
@@ -60,7 +60,7 @@ pub struct SwapScreenState {
 
 impl Default for SwapScreenState {
     fn default() -> Self {
-        let mut pool_dropdown = SimpleList::new("Available Pools");
+        let pool_dropdown = SimpleList::new("Available Pools");
 
         // Pool data will be loaded from the blockchain via the app's pool cache
         // No hardcoded test data since it doesn't exist on the actual blockchain
@@ -905,7 +905,7 @@ fn _render_swap_preview(f: &mut Frame, area: Rect, app: &App) {
             )])]
         } else {
             // Determine the "to token" from the selected pool
-            let to_token = determine_to_token_from_pool(&pool_info, &from_token);
+            let to_token = determine_to_token_from_pool(pool_info, from_token);
             let estimated_output = _calculate_estimated_output(from_amount, &app.state.swap_state);
             let price_impact = _calculate_price_impact(from_amount, &app.state.swap_state);
 
@@ -1209,7 +1209,7 @@ pub fn execute_swap_with_confirmation() {
 
     // Get the "to" token from the selected pool
     let to_token = if let Some(pool_name) = swap_state.pool_dropdown.get_selected_label() {
-        determine_to_token_from_pool(&pool_name, &from_token)
+        determine_to_token_from_pool(pool_name, from_token)
     } else {
         crate::tui_dex::utils::logger::log_error(
             "Swap failed: No pool name available for token determination",
@@ -1318,7 +1318,7 @@ pub fn handle_confirmation_response(confirmed: bool) -> Option<crate::tui_dex::e
 
         // Get the "to" token from the selected pool
         let to_token = if let Some(pool_name) = swap_state.pool_dropdown.get_selected_label() {
-            determine_to_token_from_pool(&pool_name, &from_token)
+            determine_to_token_from_pool(pool_name, from_token)
         } else {
             crate::tui_dex::utils::logger::log_error(
                 "Swap execution failed: No pool name available for token determination",

@@ -399,7 +399,7 @@ impl ContractRegistry {
                     contract_type, network.network
                 ))
             })
-            .map(|addr| addr.clone())
+            .cloned()
     }
 
     /// Get contract info for active network
