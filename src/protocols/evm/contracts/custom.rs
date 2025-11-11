@@ -6,7 +6,6 @@ use crate::error::Error;
 use crate::protocols::evm::abi::AbiHelper;
 use crate::protocols::evm::client::EvmClient;
 use alloy_primitives::{Address, B256, U256};
-use alloy_sol_types::SolCall;
 use serde_json::Value;
 
 /// Custom contract helper

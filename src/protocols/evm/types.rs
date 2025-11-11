@@ -14,8 +14,6 @@ use alloy_rpc_types_eth::transaction::{
     TransactionInput, TransactionRequest as RpcTransactionRequest,
 };
 #[cfg(feature = "evm")]
-use alloy_sol_types::SolCall;
-#[cfg(feature = "evm")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "evm")]
 use std::convert::TryInto;

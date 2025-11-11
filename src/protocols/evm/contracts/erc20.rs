@@ -92,7 +92,7 @@ impl Erc20 {
     ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC20::transferCall { to, amount };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 
@@ -119,7 +119,7 @@ impl Erc20 {
     ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC20::approveCall { spender, amount };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 
@@ -133,7 +133,7 @@ impl Erc20 {
     ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC20::transferFromCall { from, to, amount };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 }

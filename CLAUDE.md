@@ -147,6 +147,120 @@ client.skip()?          // Get Skip protocol
 - IBC packet handling
 - External Skip API integration
 
+### PrimarySale Protocol (`src/protocols/evm/contracts/primary_sale.rs`)
+- RWA token sale contract integration for atomic settlement
+- Status flow: Pending → Active → Ended/Failed → Settled/Cancelled
+- Uses ERC-20 mantraUSD for investor contributions
+- Commission-based settlement with configurable basis points
+- Integrated with Allowlist contract for KYC/AML compliance
+
+**MCP Tools (13 total):**
+
+*Query Operations:*
+- `primary_sale_get_sale_info` - Get comprehensive sale status (start/end times, soft cap, contributions, investor count)
+- `primary_sale_get_investor_info` - Query investor allocation and contribution details
+- `primary_sale_get_all_investors` - Paginated list of all investors with pagination support
+
+*Investor Operations:*
+- `primary_sale_invest` - Contribute mantraUSD to an active sale (with allowance validation)
+- `primary_sale_claim_refund` - Claim refund when sale fails or is cancelled
+
+*Admin Operations:*
+- `primary_sale_activate` - Transition sale from Pending to Active (requires current_time >= START, admin role)
+- `primary_sale_end_sale` - Transition to Ended or Failed based on soft cap achievement (callable by anyone after END time)
+- `primary_sale_settle_and_distribute` - Atomic settlement: distribute RWA tokens to all investors (settlement role required, 30% gas buffer)
+- `primary_sale_cancel` - Cancel sale from Pending or Active state (admin role, enables refunds)
+- `primary_sale_pause` - Pause contract (admin role, blocks invest and refund operations)
+- `primary_sale_unpause` - Unpause contract (admin role, re-enables operations)
+- `primary_sale_emergency_withdraw` - Recover stuck ERC-20 tokens (admin role, only when Cancelled)
+
+*Public Operations:*
+- `primary_sale_top_up_refunds` - Anyone can fund the refund pool (requires allowance)
+
+**Key Implementation Details:**
+- Pre-settlement validation: checks investor count ≤ max_loop, verifies multisig and asset owner balances/allowances
+- Commission calculation: `(total_contributed * commission_bps) / 10000`
+- Gas buffers: 20% for simple operations, 30% for complex settlement operation
+- Allowance checks: mandatory before invest and top_up_refunds operations
+- Error handling: surfaces contract-specific errors with helpful messages
+
+**Transaction Patterns:**
+- All state-changing operations use `build_sign_and_broadcast_transaction()` helper
+- Uses EIP-1559 transaction format with dynamic fee suggestion
+- Proper gas estimation with configurable buffers
+- Signature generation via MultiVM wallet with Ethereum derivation
+
+**Security Considerations:**
+
+*Access Control:*
+- **Admin Operations (DEFAULT_ADMIN_ROLE):**
+  - `primary_sale_activate` - Can only activate when `current_time >= START`
+  - `primary_sale_cancel` - Only from Pending or Active status
+  - `primary_sale_pause` / `primary_sale_unpause` - Emergency circuit breaker
+  - `primary_sale_emergency_withdraw` - Only when sale is Cancelled
+
+- **Settlement Operations (SETTLEMENT_ROLE):**
+  - `primary_sale_settle_and_distribute` - Requires SETTLEMENT_ROLE
+  - Pre-settlement validation checks investor count, balances, and allowances
+  - Uses 30% gas buffer due to complexity (multiple transfers in one tx)
+
+- **Public Operations (No Role Required):**
+  - `primary_sale_invest` - Must pass Allowlist validation (KYC/AML)
+  - `primary_sale_top_up_refunds` - Anyone can fund refund pool
+  - `primary_sale_claim_refund` - Only when sale Failed or Cancelled
+  - `primary_sale_end_sale` - Callable by anyone after END timestamp
+
+*Allowlist Integration:*
+- All `invest()` calls validate investor address via Allowlist contract
+- Allowlist enforces KYC/AML compliance
+- Investors must be pre-approved before investing
+- Check allowlist status before attempting investment
+
+*Pausability:*
+- When paused: `invest()` and `claimRefund()` operations blocked
+- Admin operations still functional when paused
+- Use for emergency situations (detected vulnerability, regulatory hold)
+- Unpause only after issue resolved and validated
+
+*Commission Validation:*
+- Commission basis points (bps) set at deployment
+- Calculated as: `(total_contributed * commission_bps) / 10000`
+- No on-chain validation of reasonable commission rates
+- Recommend max 20% (2000 bps) for user protection
+
+*Status Flow Validation:*
+```
+Pending ──activate()──> Active ──endSale()──> Ended ──settle()──> Settled
+   │                       │                     │
+   └─────cancel()──────────┘                     │
+                                                  │
+                          Failed <──endSale()─────┘
+                             │                 (soft cap not met)
+                             └─refund pool topped up
+                                └─investors claim refunds
+```
+
+*Emergency Procedures:*
+1. **Pause Contract**: Use `primary_sale_pause` if vulnerability detected
+2. **Cancel Sale**: Use `primary_sale_cancel` to enable refunds
+3. **Top Up Refunds**: If contract balance insufficient, use `primary_sale_top_up_refunds`
+4. **Emergency Withdraw**: After cancellation, use `primary_sale_emergency_withdraw` to recover stuck tokens
+
+*Gas Estimation Buffers:*
+- Simple operations (invest, claim, admin): 20% gas buffer
+- Complex operations (settlement): 30% gas buffer
+- Settlement distributes to all investors in one transaction
+- Max investors per settlement: 500 (max_loop parameter)
+
+*Best Practices:*
+- Always check sale status before operations
+- Verify Allowlist approval before investing
+- Monitor gas prices for settlement (expensive operation)
+- Test admin operations on testnet first
+- Use multi-sig wallet for admin operations
+- Validate commission rates before deployment
+- Ensure asset owner approves contract before settlement
+
 ## Testing Strategy
 
 ### What to Test

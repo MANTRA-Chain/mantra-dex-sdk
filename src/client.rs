@@ -555,7 +555,8 @@ impl MantraClient {
             evm_chain_id
         );
 
-        let client = crate::protocols::evm::client::EvmClient::new(&evm_rpc_url, evm_chain_id).await?;
+        let client =
+            crate::protocols::evm::client::EvmClient::new(&evm_rpc_url, evm_chain_id).await?;
         Ok(client)
     }
 

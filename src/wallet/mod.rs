@@ -1,3 +1,6 @@
+// Allow deprecated Signature for compatibility with alloy-consensus ecosystem
+#![allow(deprecated)]
+
 use bip32::DerivationPath;
 use bip39::Mnemonic;
 use cosmrs::{
@@ -250,7 +253,6 @@ impl MantraWallet {
     /// and taking the last 20 bytes.
     #[cfg(feature = "evm")]
     pub fn ethereum_address(&self) -> Result<alloy_primitives::Address, Error> {
-        use k256::elliptic_curve::sec1::ToEncodedPoint;
 
         let verifying_key = self.eth_signer.verifying_key();
         let point = verifying_key.to_encoded_point(false);
@@ -294,7 +296,6 @@ impl MantraWallet {
             .sign_digest_recoverable(digest)
             .map_err(|e| Error::Wallet(format!("Failed to sign digest: {}", e)))?;
 
-        #[allow(deprecated)]
         let signature = Signature::from((sig, recid));
         Ok((signature, B256::from(hash_bytes)))
     }
