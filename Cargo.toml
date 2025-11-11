@@ -1,8 +1,8 @@
 [package]
-name = "mantra-dex-sdk"
+name = "mantra-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "A Rust SDK for interacting with the Mantra DEX on the Mantra Dukong Network"
+description = "A comprehensive Rust SDK for interacting with the MANTRA blockchain ecosystem - supporting DEX, ClaimDrop, Skip, and more protocols"
 license = "MIT"
 
 [[bin]]
@@ -20,34 +20,48 @@ required-features = ["mcp"]
 
 [package.metadata.commands]
 mcp = "cargo run --bin mcp-server --features mcp"
-tui = "cargo run --bin mantra-dex-tui --features tui"
+tui-dex = "cargo run --bin mantra-dex-tui --features tui-dex"
 
 [features]
 default = []
-tui = ["ratatui", "crossterm", "tokio-util", "tui-input", "env_logger"]
+tui-dex = ["ratatui", "crossterm", "tokio-util", "tui-input", "env_logger"]
 mcp = [
     "rust-mcp-sdk",
     "rust-mcp-schema",
-    "async-trait",
-    "tracing",
     "tracing-subscriber",
     "axum",
     "hyper",
     "hyper-util",
     "tower",
-    "uuid",
     "num_cpus",
+    "evm",
+]
+evm = [
+    "alloy-primitives",
+    "alloy-provider",
+    "alloy-transport-http",
+    "alloy-json-abi",
+    "alloy-sol-types",
+    "alloy-rpc-types-eth",
+    "alloy-consensus",
+    "alloy-eips",
+    "alloy-rlp",
+    "tiny-keccak",
+    "k256",
+    "sha3",
 ]
 
 [dependencies]
 mantra-dex-std = "3.0.0"
 mantrachain-std = "0.2.0"
+mantra-claimdrop-std = "1.2.0"
 cosmrs = { version = "0.21.1", features = ["rpc", "bip32", "cosmwasm"] }
 cosmwasm-std = "2.2.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 anyhow = "1.0"
+async-trait = "0.1"
 tokio = { version = "1.32", features = ["full"] }
 bip32 = "0.5"
 bip39 = "2.0"
@@ -68,6 +82,10 @@ prost-types = "0.13.5"
 cosmos-sdk-proto = "0.26.1"
 serde_bytes = "0.11.17"
 regex = "1.10"
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
+url = "2.4"
+zeroize = { version = "1.8", features = ["derive"] }
+secrecy = "0.8"
 
 # TUI dependencies - optional via "tui" feature
 ratatui = { version = "0.29.0", features = [
@@ -79,6 +97,7 @@ tokio-util = { version = "0.7", optional = true }
 tui-input = { version = "0.10", optional = true }
 chrono = { version = "0.4", features = ["serde"] }
 env_logger = { version = "0.10", optional = true }
+tracing = "0.1.40"
 
 # MCP SDK Dependencies for Model Context Protocol server - optional via "mcp" feature
 rust-mcp-sdk = { version = "0.4.2", features = [
@@ -90,8 +109,6 @@ rust-mcp-schema = { version = "0.5.2", features = [
     "latest",
     "schema_utils",
 ], optional = true }
-async-trait = { version = "0.1.82", optional = true }
-tracing = { version = "0.1.40", optional = true }
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
 ], optional = true }
@@ -99,8 +116,22 @@ axum = { version = "0.8.1", optional = true }
 hyper = { version = "1.6.0", optional = true }
 hyper-util = { version = "0.1.10", features = ["tokio"], optional = true }
 tower = { version = "0.5.1", optional = true }
-uuid = { version = "1.11.0", features = ["v4", "serde"], optional = true }
 num_cpus = { version = "1.16", optional = true }
+
+# EVM dependencies - optional via "evm" feature
+alloy-primitives = { version = "0.8", features = ["rlp", "k256"], optional = true }
+alloy-provider = { version = "0.4", optional = true }
+alloy-transport-http = { version = "0.4", optional = true }
+alloy-json-abi = { version = "0.8", optional = true }
+alloy-sol-types = { version = "0.8", optional = true }
+alloy-rpc-types-eth = { version = "0.4", optional = true }
+alloy-consensus = { version = "0.4", features = ["k256"], optional = true }
+alloy-eips = { version = "0.4", optional = true }
+alloy-rlp = { version = "0.3", optional = true }
+tiny-keccak = { version = "2.0", features = ["keccak"], optional = true }
+k256 = { version = "0.13", features = ["ecdsa"], optional = true }
+sha3 = { version = "0.10", default-features = false, features = ["std"], optional = true }
+
 
 [dev-dependencies]
 tokio-test = "0.4"

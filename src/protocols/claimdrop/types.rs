@@ -1,0 +1,148 @@
+/// ClaimDrop-specific types and structures
+use cosmwasm_std::{Coin, Uint128};
+use serde::{Deserialize, Serialize};
+
+// Re-export types from mantra-claimdrop-std for convenience
+pub use mantra_claimdrop_std::msg::{CampaignParams, DistributionType};
+
+/// User allocation in a campaign
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Allocation {
+    pub user: String,
+    pub allocated_amount: Uint128,
+}
+
+/// Campaign information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CampaignInfo {
+    pub address: String,
+    pub owner: String,
+    pub name: String,
+    pub description: String,
+    pub campaign_type: String,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub total_reward: Coin,
+    pub claimed: Coin,
+    pub distribution_type: Vec<DistributionType>,
+    pub is_active: bool,
+    pub closed_at: Option<u64>,
+}
+
+/// User rewards information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRewards {
+    pub campaign_address: String,
+    pub claimed: Vec<Coin>,
+    pub pending: Vec<Coin>,
+    pub available_to_claim: Vec<Coin>,
+}
+
+/// Campaign-specific rewards
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CampaignReward {
+    pub campaign_address: String,
+    pub campaign_type: Option<String>,
+    pub claimed: Vec<Coin>,
+    pub pending: Vec<Coin>,
+    pub available_to_claim: Vec<Coin>,
+}
+
+/// Aggregated rewards across all campaigns
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggregatedRewards {
+    pub total_campaigns: u32,
+    pub total_claimed: Vec<Coin>,
+    pub total_pending: Vec<Coin>,
+    pub total_available: Vec<Coin>,
+    pub campaigns: Vec<CampaignReward>,
+}
+
+/// ClaimDrop operation result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaimdropOperationResult {
+    pub success: bool,
+    pub tx_hash: Option<String>,
+    pub message: String,
+    pub campaign_address: Option<String>,
+    pub data: Option<serde_json::Value>,
+}
+
+/// Claim parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaimParams {
+    pub campaign_address: String,
+    pub amount: Option<Uint128>,
+    pub receiver: Option<String>,
+}
+
+/// Campaign action for management operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CampaignAction {
+    CreateCampaign { params: CampaignParams },
+    CloseCampaign,
+    TopUpCampaign { amount: Vec<Coin> },
+}
+
+/// Blacklist action
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlacklistAction {
+    AddToBlacklist { addresses: Vec<String> },
+    RemoveFromBlacklist { addresses: Vec<String> },
+}
+
+/// Factory query responses
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CampaignsResponse {
+    pub campaigns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllocationsResponse {
+    pub allocations: Vec<Allocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRewardsResponse {
+    pub rewards: Vec<UserRewards>,
+}
+
+/// Campaign statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CampaignStats {
+    pub total_campaigns: u32,
+    pub active_campaigns: u32,
+    pub total_allocated: Uint128,
+    pub total_claimed: Uint128,
+    pub unique_participants: u32,
+}
+
+/// Authorized wallet management action
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorizedWalletAction {
+    Add { addresses: Vec<String> },
+    Remove { addresses: Vec<String> },
+}
+
+/// Response for authorized status check
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizedResponse {
+    pub is_authorized: bool,
+}
+
+/// Response for authorized wallets query
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizedWalletsResponse {
+    pub wallets: Vec<String>,
+}
+
+/// Sweep parameters for recovering tokens
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SweepParams {
+    pub campaign_address: String,
+    pub denom: String,
+    pub amount: Option<Uint128>,
+}

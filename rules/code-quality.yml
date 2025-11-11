@@ -1,0 +1,94 @@
+# Code Quality Patterns for MANTRA SDK
+
+rules:
+  # Note: TODO/FIXME comments require grep/ripgrep since ast-grep doesn't parse comments
+  # Use: grep -rn "TODO:" src/ or make ast-todos
+
+  - id: dbg-macro
+    message: "Debug macro dbg! should be removed"
+    severity: warning
+    language: rust
+    pattern: "dbg!($$$EXPR)"
+    not:
+      inside:
+        pattern: |
+          #[cfg(test)]
+          $$$TEST
+    note: "Remove debug macros before committing"
+
+  - id: long-function
+    message: "Function may be too long - consider refactoring"
+    severity: info
+    language: rust
+    pattern: |
+      fn $NAME($$$PARAMS) $RET {
+        $$$BODY
+      }
+    # Note: actual line counting needs custom implementation
+    note: "Functions over 100 lines should be refactored"
+
+  - id: clone-on-copy
+    message: "Unnecessary .clone() on Copy type"
+    severity: warning
+    language: rust
+    pattern: "$EXPR.clone()"
+    constraints:
+      EXPR:
+        regex: ".*(u8|u16|u32|u64|u128|i8|i16|i32|i64|i128|f32|f64|bool|char).*"
+    note: "Copy types don't need .clone(), use direct copy"
+
+  - id: redundant-closure
+    message: "Redundant closure can be simplified"
+    severity: info
+    language: rust
+    pattern: "|$ARG| $FUNC($ARG)"
+    note: "Can be simplified to just $FUNC"
+
+  - id: missing-docs-public-api
+    message: "Public API should have documentation"
+    severity: warning
+    language: rust
+    pattern: |
+      pub fn $NAME($$$PARAMS) $RET {
+        $$$BODY
+      }
+    not:
+      precedes:
+        pattern: "/// $$$DOC"
+    note: "Document public functions with /// comments"
+
+  - id: deprecated-import
+    message: "Deprecated import usage"
+    severity: warning
+    language: rust
+    pattern: "use $$$PATH::$DEPRECATED;"
+    has:
+      pattern: |
+        #[deprecated]
+        pub $$$ITEM
+    note: "Use the recommended alternative"
+
+  - id: inefficient-string-concat
+    message: "Inefficient string concatenation in loop"
+    severity: warning
+    language: rust
+    pattern: |
+      for $VAR in $ITER {
+        $$$BEFORE
+        $STR = $STR + $$$CONCAT
+        $$$AFTER
+      }
+    note: "Use String::push_str() or format! instead"
+
+  - id: unused-mut
+    message: "Variable declared as mut but never mutated"
+    severity: info
+    language: rust
+    pattern: "let mut $VAR = $INIT;"
+    not:
+      follows:
+        any:
+          - pattern: "$VAR = $$$EXPR"
+          - pattern: "$VAR.$$$METHOD"
+          - pattern: "&mut $VAR"
+    note: "Remove unnecessary mut keyword"

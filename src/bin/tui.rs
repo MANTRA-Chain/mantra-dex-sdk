@@ -2,12 +2,12 @@
 //!
 //! This is a simplified entry point for the MANTRA DEX TUI application.
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 use clap::Parser;
-#[cfg(feature = "tui")]
-use mantra_dex_sdk::{client::MantraDexClient, config::MantraNetworkConfig, tui::run_tui};
+#[cfg(feature = "tui-dex")]
+use mantra_sdk::{client::MantraDexClient, config::MantraNetworkConfig, tui::run_tui};
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 #[derive(Parser)]
 #[command(name = "mantra-dex")]
 #[command(about = "MANTRA DEX Terminal User Interface")]
@@ -22,7 +22,7 @@ struct Args {
     help_mode: bool,
 }
 
-#[cfg(feature = "tui")]
+#[cfg(feature = "tui-dex")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "tui"))]
+#[cfg(not(feature = "tui-dex"))]
 fn main() {
     eprintln!("TUI feature is not enabled. Please run with: cargo run --bin tui --features tui");
     std::process::exit(1);

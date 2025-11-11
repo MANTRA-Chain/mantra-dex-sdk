@@ -10,6 +10,8 @@ cache_ttl_secs = 300
 name = "mantra-dukong"
 rpc_url = "https://rpc.dukong.mantrachain.io/"
 chain_id = "mantra-dukong"
+evm_rpc_url = "https://evm.dukong.mantrachain.io"
+evm_chain_id = 5887
 
 [transport]
 type = "stdio"

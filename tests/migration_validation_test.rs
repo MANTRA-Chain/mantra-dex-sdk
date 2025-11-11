@@ -1,5 +1,5 @@
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use mantra_dex_sdk::{Error, MantraDexClient, MantraWallet};
+use mantra_sdk::{Error, MantraDexClient, MantraWallet};
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -398,11 +398,11 @@ async fn test_pool_status_handling_migration() {
                 let pool_id = &pool.pool_info.pool_identifier;
 
                 match status {
-                    mantra_dex_sdk::client::PoolStatus::Available => {
+                    mantra_sdk::protocols::dex::client::PoolStatus::Available => {
                         available_count += 1;
                         println!("  - Pool {} status: Available", pool_id);
                     }
-                    mantra_dex_sdk::client::PoolStatus::Disabled => {
+                    mantra_sdk::protocols::dex::client::PoolStatus::Disabled => {
                         disabled_count += 1;
                         println!("  - Pool {} status: Disabled", pool_id);
                     }
@@ -410,8 +410,8 @@ async fn test_pool_status_handling_migration() {
 
                 // Verify status is properly mapped
                 assert!(
-                    status == mantra_dex_sdk::client::PoolStatus::Available
-                        || status == mantra_dex_sdk::client::PoolStatus::Disabled,
+                    status == mantra_sdk::protocols::dex::client::PoolStatus::Available
+                        || status == mantra_sdk::protocols::dex::client::PoolStatus::Disabled,
                     "Pool status should be either Available or Disabled"
                 );
             }

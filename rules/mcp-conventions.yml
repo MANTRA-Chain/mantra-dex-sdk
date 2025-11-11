@@ -1,0 +1,76 @@
+# MCP Protocol Conventions for MANTRA SDK
+
+rules:
+  - id: mcp-tool-naming
+    message: "MCP tool should follow protocol prefix convention"
+    severity: error
+    language: rust
+    pattern: |
+      Tool {
+        name: "$NAME",
+        $$$FIELDS
+      }
+    constraints:
+      NAME:
+        not:
+          regex: "^(network|wallet|dex|claimdrop|skip)_.*"
+    note: "MCP tools must be prefixed: network_*, wallet_*, dex_*, claimdrop_*, skip_*"
+
+  - id: mcp-feature-gate
+    message: "MCP code should be feature-gated"
+    severity: error
+    language: rust
+    pattern: |
+      use mcp_server::$$$IMPORT;
+    not:
+      inside:
+        pattern: |
+          #[cfg(feature = "mcp")]
+          $$$BODY
+    note: "All MCP-related code must be behind #[cfg(feature = \"mcp\")]"
+
+  - id: mcp-error-handling
+    message: "MCP handler should return proper JSON-RPC error"
+    severity: warning
+    language: rust
+    pattern: |
+      async fn $NAME($$$PARAMS) -> Result<$RET, $ERR> {
+        $$$BODY
+      }
+    constraints:
+      NAME:
+        regex: ".*_handler"
+      ERR:
+        not:
+          regex: "JsonRpcError"
+    note: "MCP handlers should return Result<T, JsonRpcError>"
+
+  - id: mcp-tool-description
+    message: "MCP tool should have description"
+    severity: warning
+    language: rust
+    pattern: |
+      Tool {
+        name: "$NAME",
+        $$$FIELDS
+      }
+    not:
+      has:
+        pattern: "description:"
+    note: "All MCP tools should include descriptive documentation"
+
+  - id: mcp-parameter-validation
+    message: "MCP handler should validate parameters"
+    severity: warning
+    language: rust
+    pattern: |
+      async fn $HANDLER(params: Value) -> $RET {
+        $$$BODY
+      }
+    not:
+      has:
+        any:
+          - pattern: "serde_json::from_value"
+          - pattern: "validate"
+          - pattern: "parse"
+    note: "Validate and parse MCP parameters properly"

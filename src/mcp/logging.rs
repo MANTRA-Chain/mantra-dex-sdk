@@ -91,7 +91,6 @@ impl Default for LoggingConfig {
 }
 
 impl LoggingConfig {
-
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), String> {
         if self.sampling_rate < 0.0 || self.sampling_rate > 1.0 {
@@ -869,5 +868,4 @@ mod tests {
         let metrics = logger.get_metrics().await;
         assert_eq!(metrics.total_messages, 0);
     }
-
 }

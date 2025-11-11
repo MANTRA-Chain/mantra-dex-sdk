@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use mantra_dex_sdk::mcp::{
+use mantra_sdk::mcp::{
     logging::{setup_logging, LoggingConfig},
     server::{create_http_server, create_stdio_server, McpServerConfig},
 };
@@ -88,19 +88,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Override with CLI arguments
     if debug_mode {
-        logging_config.level = mantra_dex_sdk::mcp::logging::LogLevel::Debug;
+        logging_config.level = mantra_sdk::mcp::logging::LogLevel::Debug;
     } else {
         // For normal operation, use INFO level to reduce noise
-        logging_config.level = mantra_dex_sdk::mcp::logging::LogLevel::Info;
+        logging_config.level = mantra_sdk::mcp::logging::LogLevel::Info;
     }
 
     logging_config.format = log_format
         .parse()
-        .unwrap_or(mantra_dex_sdk::mcp::logging::LogFormat::Compact);
+        .unwrap_or(mantra_sdk::mcp::logging::LogFormat::Compact);
     logging_config.enable_colors = !disable_colors;
 
     if let Some(file_path) = log_file {
-        logging_config.output_target = mantra_dex_sdk::mcp::logging::LogTarget::File;
+        logging_config.output_target = mantra_sdk::mcp::logging::LogTarget::File;
         logging_config.log_file_path = Some(std::path::PathBuf::from(file_path));
     }
 

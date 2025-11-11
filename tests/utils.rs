@@ -1,6 +1,6 @@
 use config::{Config as ConfigLoader, File};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use mantra_dex_sdk::{
+use mantra_sdk::{
     config::{ContractAddresses, MantraNetworkConfig, NetworkConstants},
     MantraDexClient, MantraWallet,
 };

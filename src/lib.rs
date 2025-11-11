@@ -1,12 +1,12 @@
 pub mod client;
 pub mod config;
 pub mod error;
-pub mod skip_adapter;
+pub mod protocols;
 pub mod wallet;
 
-// TUI module - optional via "tui" feature
-#[cfg(feature = "tui")]
-pub mod tui;
+// DEX TUI module - optional via "tui-dex" feature
+#[cfg(feature = "tui-dex")]
+pub mod tui_dex;
 
 // MCP module - optional via "mcp" feature
 #[cfg(feature = "mcp")]
@@ -14,19 +14,37 @@ pub mod mcp;
 // Re-export mantra-dex-std for user convenience
 pub use mantra_dex_std;
 
-pub use client::MantraDexClient;
+// Main client exports
+pub use client::{ConfigurationChanges, MantraClient, MantraClientBuilder};
 pub use config::{MantraNetworkConfig, NetworkConstants};
 pub use error::Error;
-pub use skip_adapter::{
-    SkipAction, SkipAffiliate, SkipAsset, SkipIbcInfo, SkipRoute, SkipSwap, SkipSwapExactAssetIn, 
-    SkipSwapExactAssetOut, SkipSwapOperation, SimulateSwapExactAssetInResponse, 
-    SimulateSwapExactAssetOutResponse, SimulateSmartSwapExactAssetInResponse
-};
 pub use wallet::MantraWallet;
 
-// Re-export TUI entry point when feature is enabled
-#[cfg(feature = "tui")]
-pub use tui::run_tui;
+// Protocol exports
+pub use protocols::{Protocol, ProtocolRegistry};
+
+// DEX protocol exports
+pub use protocols::dex::{DexProtocol, MantraDexClient};
+
+// Skip protocol exports
+pub use protocols::skip::{
+    SimulateSmartSwapExactAssetInResponse, SimulateSwapExactAssetInResponse,
+    SimulateSwapExactAssetOutResponse, SkipAction, SkipAffiliate, SkipAsset, SkipIbcInfo,
+    SkipProtocol, SkipRoute, SkipSwap, SkipSwapExactAssetIn, SkipSwapExactAssetOut,
+    SkipSwapOperation,
+};
+
+// ClaimDrop protocol exports
+pub use protocols::claimdrop::{
+    AggregatedRewards, Allocation, AllocationsResponse, BlacklistAction, CampaignAction,
+    CampaignInfo, CampaignParams, CampaignStats, CampaignsResponse, ClaimParams, ClaimdropClient,
+    ClaimdropFactoryClient, ClaimdropOperationResult, ClaimdropProtocol, UserRewards,
+    UserRewardsResponse,
+};
+
+// Re-export DEX TUI entry point when feature is enabled
+#[cfg(feature = "tui-dex")]
+pub use tui_dex::run_tui;
 
 // Re-export MCP server types when feature is enabled
 #[cfg(feature = "mcp")]
@@ -35,6 +53,7 @@ pub use mcp::{
     MantraDexMcpServer, McpResult, McpSdkAdapter, McpServerConfig, McpServerError, MCP_SERVER_NAME,
     MCP_SERVER_VERSION,
 };
+
 // Re-export common types from mantra-dex-std
 pub use cosmwasm_std::{Coin, Decimal, Uint128};
 pub use mantra_dex_std::{

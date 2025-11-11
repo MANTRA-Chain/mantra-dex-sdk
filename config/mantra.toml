@@ -1,0 +1,9 @@
+[network]
+name = "mantra-dukong"
+chain_id = "mantra-dukong-1"
+rpc_url = "https://rpc.dukong.mantrachain.io:443"
+gas_price = 0.01
+gas_adjustment = 1.5
+native_denom = "uom"
+evm_rpc_url = "https://evm.dukong.mantrachain.io"
+evm_chain_id = 5887

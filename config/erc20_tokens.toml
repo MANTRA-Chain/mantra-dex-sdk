@@ -1,0 +1,34 @@
+[mainnet]
+chain_id = 1
+
+[[mainnet.tokens]]
+address = "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+symbol = "USDC"
+name = "USD Coin"
+decimals = 6
+
+[[mainnet.tokens]]
+address = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+symbol = "USDT"
+name = "Tether USD"
+decimals = 6
+
+[[mainnet.tokens]]
+address = "0xC02aaA39b223FE8D0A0E5C4F27eAD9083C756Cc2"
+symbol = "WETH"
+name = "Wrapped Ether"
+decimals = 18
+
+[dukong]
+chain_id = 7000
+
+[[dukong.tokens]]
+address = "0x0000000000000000000000000000000000000000"
+symbol = "OM"
+name = "MANTRA Token"
+decimals = 18
+
+[custom]
+# Optional inline custom tokens; define `network` or `chain_id` for each entry.
+# path defaults to `erc20_tokens.local.toml` in the same directory.
+path = "erc20_tokens.local.toml"

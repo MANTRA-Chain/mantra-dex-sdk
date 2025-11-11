@@ -1,0 +1,14 @@
+# EVM Smart Contracts Configuration
+# This file contains addresses for EVM smart contracts deployed on MANTRA Chain
+
+# PrimarySale Contracts
+# These contracts manage primary sale operations for RWA tokens
+[primary_sale]
+# Example address - update with actual deployed contract addresses
+# testnet = "0x0000000000000000000000000000000000000000"
+# mainnet = "0x0000000000000000000000000000000000000000"
+
+# Additional EVM Protocol Contracts
+# Add more contract configurations here as needed
+[additional_contracts]
+# protocol_name = "0x..."

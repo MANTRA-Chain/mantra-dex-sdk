@@ -1,7 +1,7 @@
 mod utils;
 
 use cosmwasm_std::Decimal;
-use mantra_dex_sdk::Error;
+use mantra_sdk::Error;
 use utils::test_utils::create_test_client;
 
 /// Test fee validation with valid fees (under 20% total)

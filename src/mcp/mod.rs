@@ -45,9 +45,11 @@ pub mod server;
 // SDK integration layer
 pub mod sdk_adapter;
 
+// ERC-20 registry for metadata caching
+pub mod erc20_registry;
+
 // MCP client wrapper
 pub mod client_wrapper;
-
 
 // Re-export main types for easy access
 pub use server::{
@@ -60,7 +62,6 @@ pub use sdk_adapter::{ConnectionPoolConfig, McpSdkAdapter};
 
 // Re-export client wrapper types
 pub use client_wrapper::McpClientWrapper;
-
 
 // TODO: Add these modules as they are implemented in subsequent tasks
 // pub mod tools;

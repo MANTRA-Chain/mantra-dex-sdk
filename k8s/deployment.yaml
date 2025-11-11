@@ -1,0 +1,414 @@
+# Kubernetes deployment manifests for Mantra SDK
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mantra-sdk
+  labels:
+    name: mantra-sdk
+    environment: production
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mantra-sdk-config
+  namespace: mantra-sdk
+data:
+  network.toml: |
+    [testnet]
+    chain_id = "mantra-hongbai-1"
+    rpc_endpoint = "https://rpc.hongbai.mantrachain.io"
+    rest_endpoint = "https://api.hongbai.mantrachain.io"
+    
+    [mainnet]
+    chain_id = "mantra-1"
+    rpc_endpoint = "https://rpc.mantrachain.io"
+    rest_endpoint = "https://api.mantrachain.io"
+  
+  mcp.toml: |
+    [server]
+    name = "mantra-dex-mcp-server"
+    version = "0.1.0"
+    max_connections = 100
+    timeout = 30
+    
+    [features]
+    enable_monitoring = true
+    enable_security = true
+    enable_resilience = true
+  
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    scrape_configs:
+      - job_name: 'mantra-sdk'
+        static_configs:
+          - targets: ['mcp-server:8080']
+        metrics_path: /metrics
+        scrape_interval: 5s
+
+---
+# Secret for sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mantra-sdk-secrets
+  namespace: mantra-sdk
+type: Opaque
+stringData:
+  ENCRYPTION_KEY: "your-encryption-key-here"
+  API_KEYS: "your-api-keys-here"
+
+---
+# MCP Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: mantra-sdk
+  labels:
+    app: mcp-server
+    component: backend
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: mcp-server
+  template:
+    metadata:
+      labels:
+        app: mcp-server
+        component: backend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: mantra-sdk-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: mcp-server
+        image: mantra-sdk:mcp-server
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: "info"
+        - name: MANTRA_NETWORK
+          value: "mainnet"
+        - name: MCP_TRANSPORT
+          value: "http"
+        - name: MCP_PORT
+          value: "8080"
+        - name: ENABLE_METRICS
+          value: "true"
+        - name: ENABLE_SECURITY
+          value: "true"
+        - name: ENABLE_RESILIENCE
+          value: "true"
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mantra-sdk-secrets
+              key: ENCRYPTION_KEY
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        - name: data-volume
+          mountPath: /app/data
+        - name: logs-volume
+          mountPath: /app/logs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+      volumes:
+      - name: config-volume
+        configMap:
+          name: mantra-sdk-config
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: mcp-server-data-pvc
+      - name: logs-volume
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - mcp-server
+              topologyKey: kubernetes.io/hostname
+
+---
+# Service for MCP Server
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: mantra-sdk
+  labels:
+    app: mcp-server
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 8443
+    targetPort: 8443
+    protocol: TCP
+    name: https
+  selector:
+    app: mcp-server
+
+---
+# LoadBalancer Service for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server-lb
+  namespace: mantra-sdk
+  labels:
+    app: mcp-server
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:region:account:certificate/cert-id"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "https"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 443
+    targetPort: 8080
+    protocol: TCP
+    name: https
+  selector:
+    app: mcp-server
+
+---
+# Ingress for HTTP routing
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-server-ingress
+  namespace: mantra-sdk
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - mcp.mantrachain.io
+    secretName: mcp-server-tls
+  rules:
+  - host: mcp.mantrachain.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mcp-server
+            port:
+              number: 8080
+
+---
+# PersistentVolumeClaim for data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcp-server-data-pvc
+  namespace: mantra-sdk
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp2
+
+---
+# ServiceAccount for RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mantra-sdk-service-account
+  namespace: mantra-sdk
+
+---
+# ClusterRole for necessary permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mantra-sdk-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mantra-sdk-cluster-role-binding
+subjects:
+- kind: ServiceAccount
+  name: mantra-sdk-service-account
+  namespace: mantra-sdk
+roleRef:
+  kind: ClusterRole
+  name: mantra-sdk-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mcp-server-hpa
+  namespace: mantra-sdk
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mcp-server
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-server-pdb
+  namespace: mantra-sdk
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: mcp-server
+
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-server-netpol
+  namespace: mantra-sdk
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: nginx-ingress
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8443
+  egress:
+  - {} # Allow all egress for now - restrict as needed

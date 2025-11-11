@@ -1,77 +1,32 @@
+//! Configuration management for the Mantra DEX SDK
+//!
+//! This module provides both legacy configuration support and the new modular
+//! configuration system for comprehensive management of contracts, protocols, and environment.
+
+// Modular configuration system
+pub mod contracts;
+pub mod env;
+pub mod protocols;
+
+// Re-export key types from modular system
+pub use contracts::{ContractInfo, ContractRegistry, ContractType, NetworkContracts};
+pub use env::{EnvironmentConfig, LoggingEnvConfig, McpEnvConfig, NetworkEnvConfig};
+pub use protocols::{
+    FeeConfig, HealthConfig, ProtocolConfig, ProtocolId, ProtocolParameters, ProtocolRegistry,
+    RateLimitConfig,
+};
+
+// Legacy configuration types and functions for backward compatibility
 use config::{Config as ConfigLoader, ConfigError, File};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::env;
+use std::env as std_env;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::error::Error;
 
-/// Network constants loaded from configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkConstants {
-    /// Network name
-    pub network_name: String,
-    /// Chain ID (for transaction signing)
-    pub chain_id: String,
-    /// Default RPC endpoint
-    pub default_rpc: String,
-    /// Default gas price (in uaum)
-    pub default_gas_price: f64,
-    /// Default gas adjustment
-    pub default_gas_adjustment: f64,
-    /// Native token denom
-    pub native_denom: String,
-}
-
-impl NetworkConstants {
-    /// Load network constants from the configuration file
-    pub fn load(network: &str) -> Result<Self, ConfigError> {
-        let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
-
-        // Try multiple paths for the config file
-        let config_paths = vec![
-            format!("{}/network", config_dir),
-            "config/network".to_string(),
-            "../config/network".to_string(),
-            "../../config/network".to_string(),
-        ];
-
-        for config_path in &config_paths {
-            if let Ok(settings) = ConfigLoader::builder()
-                .add_source(File::with_name(config_path))
-                .build()
-            {
-                if let Ok(constants) = settings.get::<NetworkConstants>(network) {
-                    return Ok(constants);
-                }
-            }
-        }
-
-        // If we can't load from config files, return hardcoded constants
-        match network {
-            "mantra-dukong" => Ok(NetworkConstants {
-                network_name: "mantra-dukong".to_string(),
-                chain_id: "mantra-dukong-1".to_string(),
-                default_rpc: "https://rpc.dukong.mantrachain.io:443".to_string(),
-                default_gas_price: 0.01,
-                default_gas_adjustment: 1.5,
-                native_denom: "uom".to_string(),
-            }),
-            _ => Err(ConfigError::NotFound(format!(
-                "Network configuration for '{}' not found",
-                network
-            ))),
-        }
-    }
-
-    /// Get the default Mantra Dukong network constants
-    pub fn default_dukong() -> Result<Self, ConfigError> {
-        Self::load("mantra-dukong")
-    }
-}
-
-/// Contract address configuration
+/// Legacy contract address configuration for backward compatibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractAddresses {
     /// Pool manager contract address
@@ -102,7 +57,127 @@ impl Default for ContractAddresses {
     }
 }
 
-/// Network configuration for Mantra DEX
+impl From<&NetworkContracts> for ContractAddresses {
+    fn from(network_contracts: &NetworkContracts) -> Self {
+        Self {
+            pool_manager: network_contracts
+                .get_address(&ContractType::PoolManager)
+                .cloned()
+                .unwrap_or_default(),
+            farm_manager: network_contracts
+                .get_address(&ContractType::FarmManager)
+                .cloned(),
+            fee_collector: network_contracts
+                .get_address(&ContractType::FeeCollector)
+                .cloned(),
+            epoch_manager: network_contracts
+                .get_address(&ContractType::EpochManager)
+                .cloned(),
+            skip_entry_point: network_contracts
+                .get_address(&ContractType::SkipEntryPoint)
+                .cloned(),
+            skip_ibc_hooks_adapter: network_contracts
+                .get_address(&ContractType::SkipIbcHooksAdapter)
+                .cloned(),
+            skip_mantra_dex_adapter: network_contracts
+                .get_address(&ContractType::SkipMantraDexAdapter)
+                .cloned(),
+        }
+    }
+}
+
+/// Legacy network constants for backward compatibility
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConstants {
+    /// Network name
+    pub network_name: String,
+    /// Chain ID (for transaction signing)
+    pub chain_id: String,
+    /// Default RPC endpoint
+    pub default_rpc: String,
+    /// Default gas price (in uaum)
+    pub default_gas_price: f64,
+    /// Default gas adjustment
+    pub default_gas_adjustment: f64,
+    /// Native token denom
+    pub native_denom: String,
+}
+
+impl NetworkConstants {
+    /// Load network constants from the configuration file (legacy method)
+    pub fn load(network: &str) -> Result<Self, ConfigError> {
+        // Try new environment config first
+        if let Ok(env_config) = EnvironmentConfig::load() {
+            if env_config.get_network_name() == network {
+                return Ok(Self {
+                    network_name: env_config.get_network_name(),
+                    chain_id: env_config.get_chain_id(),
+                    default_rpc: env_config.get_rpc_url(),
+                    default_gas_price: env_config.get_gas_price(),
+                    default_gas_adjustment: env_config.get_gas_adjustment(),
+                    native_denom: env_config.get_native_denom(),
+                });
+            }
+        }
+
+        // Fallback to legacy file-based loading
+        let config_dir = std_env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
+
+        let config_paths = vec![
+            format!("{}/network", config_dir),
+            "config/network".to_string(),
+            "../config/network".to_string(),
+            "../../config/network".to_string(),
+        ];
+
+        for config_path in &config_paths {
+            if let Ok(settings) = ConfigLoader::builder()
+                .add_source(File::with_name(config_path))
+                .build()
+            {
+                if let Ok(constants) = settings.get::<NetworkConstants>(network) {
+                    return Ok(constants);
+                }
+            }
+        }
+
+        // Hardcoded fallback for known networks
+        match network {
+            "mantra-dukong" => Ok(NetworkConstants {
+                network_name: "mantra-dukong".to_string(),
+                chain_id: "mantra-dukong-1".to_string(),
+                default_rpc: "https://rpc.dukong.mantrachain.io:443".to_string(),
+                default_gas_price: 0.01,
+                default_gas_adjustment: 1.5,
+                native_denom: "uom".to_string(),
+            }),
+            _ => Err(ConfigError::NotFound(format!(
+                "Network configuration for '{}' not found",
+                network
+            ))),
+        }
+    }
+
+    /// Get the default Mantra Dukong network constants
+    pub fn default_dukong() -> Result<Self, ConfigError> {
+        Self::load("mantra-dukong")
+    }
+}
+
+impl From<&EnvironmentConfig> for NetworkConstants {
+    fn from(env_config: &EnvironmentConfig) -> Self {
+        Self {
+            network_name: env_config.get_network_name(),
+            chain_id: env_config.get_chain_id(),
+            default_rpc: env_config.get_rpc_url(),
+            default_gas_price: env_config.get_gas_price(),
+            default_gas_adjustment: env_config.get_gas_adjustment(),
+            native_denom: env_config.get_native_denom(),
+        }
+    }
+}
+
+/// Legacy network configuration for backward compatibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MantraNetworkConfig {
     /// Network name (e.g., mantra-dukong)
@@ -119,13 +194,26 @@ pub struct MantraNetworkConfig {
     pub native_denom: String,
     /// Contract addresses
     pub contracts: ContractAddresses,
+    /// EVM RPC endpoint URL (optional)
+    #[cfg(feature = "evm")]
+    pub evm_rpc_url: Option<String>,
+    /// EVM chain ID (optional)
+    #[cfg(feature = "evm")]
+    pub evm_chain_id: Option<u64>,
 }
 
 impl MantraNetworkConfig {
     /// Create a new network config from network constants
     pub fn from_constants(constants: &NetworkConstants) -> Result<Self, Error> {
-        // Attempt to load contract addresses for this network from `config/contracts.toml`
-        let contracts = Self::load_contract_addresses(&constants.network_name)?;
+        // Attempt to load contract addresses for this network
+        let contract_registry = ContractRegistry::load().unwrap_or_default();
+        let contracts =
+            if let Ok(network_contracts) = contract_registry.get_network(&constants.network_name) {
+                ContractAddresses::from(network_contracts)
+            } else {
+                // Fallback to legacy loading
+                Self::load_contract_addresses(&constants.network_name).unwrap_or_default()
+            };
 
         Ok(Self {
             network_name: constants.network_name.clone(),
@@ -135,16 +223,32 @@ impl MantraNetworkConfig {
             gas_adjustment: constants.default_gas_adjustment,
             native_denom: constants.native_denom.clone(),
             contracts,
+            #[cfg(feature = "evm")]
+            evm_rpc_url: None, // Will be populated from env config or network.toml
+            #[cfg(feature = "evm")]
+            evm_chain_id: None, // Will be populated from env config or network.toml
         })
     }
 
-    /// Load contract addresses for the given network from the contracts configuration file.
-    /// Returns an error if the contract addresses cannot be loaded.
-    fn load_contract_addresses(network: &str) -> Result<ContractAddresses, Error> {
-        // Determine configuration directory – fall back to local `config` directory inside the project
-        let config_dir = env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
+    /// Create from environment configuration (new method)
+    pub fn from_env_config(env_config: &EnvironmentConfig) -> Result<Self, Error> {
+        let constants = NetworkConstants::from(env_config);
+        let mut config = Self::from_constants(&constants)?;
 
-        // Try multiple paths for the config file
+        #[cfg(feature = "evm")]
+        {
+            config.evm_rpc_url = env_config.network.evm_rpc_url.clone();
+            config.evm_chain_id = env_config.network.evm_chain_id;
+        }
+
+        Ok(config)
+    }
+
+    /// Load contract addresses for the given network from the contracts configuration file.
+    /// Legacy method for backward compatibility.
+    fn load_contract_addresses(network: &str) -> Result<ContractAddresses, Error> {
+        let config_dir = std_env::var("MANTRA_CONFIG_DIR").unwrap_or_else(|_| "config".to_string());
+
         let config_paths = vec![
             format!("{}/contracts", config_dir),
             "config/contracts".to_string(),
@@ -203,6 +307,10 @@ impl Default for MantraNetworkConfig {
                 gas_adjustment: constants.default_gas_adjustment,
                 native_denom: constants.native_denom,
                 contracts: ContractAddresses::default(),
+                #[cfg(feature = "evm")]
+                evm_rpc_url: None,
+                #[cfg(feature = "evm")]
+                evm_chain_id: None,
             }),
             Err(_) => Self {
                 network_name: "mantra-dukong".to_string(),
@@ -212,20 +320,13 @@ impl Default for MantraNetworkConfig {
                 gas_adjustment: 1.5,
                 native_denom: "uom".to_string(),
                 contracts: ContractAddresses::default(),
+                #[cfg(feature = "evm")]
+                evm_rpc_url: None,
+                #[cfg(feature = "evm")]
+                evm_chain_id: None,
             },
         }
     }
-}
-
-/// Complete configuration with wallet info
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    /// Active network configuration
-    pub network: MantraNetworkConfig,
-    /// Wallet mnemonic (seed phrase)
-    pub mnemonic: Option<String>,
-    /// Known tokens and their metadata
-    pub tokens: HashMap<String, TokenInfo>,
 }
 
 /// Token information
@@ -239,6 +340,17 @@ pub struct TokenInfo {
     pub decimals: u8,
     /// Token logo URL
     pub logo: Option<String>,
+}
+
+/// Complete legacy configuration with wallet info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    /// Active network configuration
+    pub network: MantraNetworkConfig,
+    /// Wallet mnemonic (seed phrase)
+    pub mnemonic: Option<String>,
+    /// Known tokens and their metadata
+    pub tokens: HashMap<String, TokenInfo>,
 }
 
 impl Default for Config {
@@ -257,7 +369,7 @@ impl Config {
         }
     }
 
-    /// Load configuration from a file
+    /// Load configuration from a file (legacy method)
     pub fn load(path: &PathBuf) -> Result<Self, Error> {
         let content = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)
@@ -265,7 +377,7 @@ impl Config {
         Ok(config)
     }
 
-    /// Save configuration to a file
+    /// Save configuration to a file (legacy method)
     pub fn save(&self, path: &PathBuf) -> Result<(), Error> {
         let content = toml::to_string_pretty(self)
             .map_err(|e| Error::Config(format!("Failed to serialize config: {}", e)))?;
@@ -285,5 +397,136 @@ impl Config {
         path.push("mantra-dex");
         path.push("config.toml");
         path
+    }
+
+    /// Create from new configuration system
+    pub fn from_modern_config() -> Result<Self, Error> {
+        let env_config = EnvironmentConfig::load()?;
+        let network_config = MantraNetworkConfig::from_env_config(&env_config)?;
+
+        Ok(Self {
+            network: network_config,
+            mnemonic: None,
+            tokens: HashMap::new(),
+        })
+    }
+}
+
+/// Unified configuration manager that integrates all configuration systems
+#[derive(Debug, Clone)]
+pub struct ConfigurationManager {
+    /// Environment-based configuration
+    pub env_config: EnvironmentConfig,
+    /// Contract registry
+    pub contract_registry: ContractRegistry,
+    /// Protocol registry
+    pub protocol_registry: ProtocolRegistry,
+    /// Active network
+    active_network: Option<String>,
+}
+
+impl ConfigurationManager {
+    /// Create a new configuration manager
+    pub fn new() -> Result<Self, Error> {
+        let env_config = EnvironmentConfig::load()?;
+        let mut contract_registry = ContractRegistry::load().unwrap_or_default();
+        let mut protocol_registry = ProtocolRegistry::load().unwrap_or_default();
+
+        // Set active network
+        let active_network = env_config.get_network_name();
+        if let Err(_) = contract_registry.set_active_network(&active_network) {
+            // Network not found in contract registry, that's okay
+        }
+        protocol_registry.set_active_network(&active_network);
+
+        Ok(Self {
+            env_config,
+            contract_registry,
+            protocol_registry,
+            active_network: Some(active_network),
+        })
+    }
+
+    /// Get the active network name
+    pub fn get_active_network(&self) -> Option<&String> {
+        self.active_network.as_ref()
+    }
+
+    /// Set the active network
+    pub fn set_active_network(&mut self, network: String) -> Result<(), Error> {
+        // Validate network exists in contract registry
+        if let Err(_) = self.contract_registry.set_active_network(&network) {
+            // Network not found in contract registry, but we can still set it
+        }
+
+        self.protocol_registry.set_active_network(&network);
+        self.active_network = Some(network);
+        Ok(())
+    }
+
+    /// Get contract address for a specific contract type
+    pub fn get_contract_address(&self, contract_type: &ContractType) -> Result<String, Error> {
+        self.contract_registry.get_contract_address(contract_type)
+    }
+
+    /// Get protocol configuration
+    pub fn get_protocol_config(&self, protocol_id: &ProtocolId) -> Option<ProtocolConfig> {
+        self.protocol_registry.get_protocol(protocol_id)
+    }
+
+    /// Check if a protocol is enabled
+    pub fn is_protocol_enabled(&self, protocol_id: &ProtocolId) -> bool {
+        self.protocol_registry.is_protocol_enabled(protocol_id)
+    }
+
+    /// Get network configuration for legacy compatibility
+    pub fn get_legacy_network_config(&self) -> MantraNetworkConfig {
+        MantraNetworkConfig::from_env_config(&self.env_config)
+            .unwrap_or_else(|_| MantraNetworkConfig::default())
+    }
+
+    /// Get network constants for legacy compatibility
+    pub fn get_legacy_network_constants(&self) -> NetworkConstants {
+        NetworkConstants::from(&self.env_config)
+    }
+
+    /// Validate all configurations
+    pub fn validate(&self) -> Result<(), Error> {
+        self.env_config.validate()?;
+        self.protocol_registry.validate_all()?;
+        if let Some(ref network) = self.active_network {
+            if let Ok(_) = self.contract_registry.get_network(network) {
+                self.contract_registry.validate_active_network()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Reload all configurations
+    pub fn reload(&mut self) -> Result<(), Error> {
+        self.env_config = EnvironmentConfig::load()?;
+        self.contract_registry = ContractRegistry::load().unwrap_or_default();
+        self.protocol_registry = ProtocolRegistry::load().unwrap_or_default();
+
+        // Restore active network
+        if let Some(ref network) = self.active_network {
+            if let Err(_) = self.contract_registry.set_active_network(network) {
+                // Network not found, that's okay
+            }
+            self.protocol_registry.set_active_network(network);
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for ConfigurationManager {
+    fn default() -> Self {
+        Self::new().unwrap_or_else(|_| Self {
+            env_config: EnvironmentConfig::generate_default_config(),
+            contract_registry: ContractRegistry::default(),
+            protocol_registry: ProtocolRegistry::default(),
+            active_network: Some("mantra-dukong".to_string()),
+        })
     }
 }
