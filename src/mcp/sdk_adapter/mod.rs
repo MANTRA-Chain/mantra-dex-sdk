@@ -74,19 +74,40 @@ impl Default for ConnectionPoolConfig {
     }
 }
 
-// EVM transaction constants
+// =============================================================================
+// EVM Transaction Constants
+// =============================================================================
+
+/// Initial gas limit used as placeholder during gas estimation.
+///
+/// This value is used in `build_sign_and_broadcast_transaction()` when
+/// building the transaction for gas estimation. The RPC node simulates
+/// the transaction with this limit to calculate the actual gas needed.
+///
+/// **Important:** This is NOT the final gas limit - it's just a placeholder.
+/// The actual gas limit is determined by the estimation result plus a buffer
+/// (GAS_BUFFER_SIMPLE_PERCENT or GAS_BUFFER_COMPLEX_PERCENT).
+///
+/// **Why 300,000:**
+/// - PrimarySale `invest()`: ~150k gas
+/// - PrimarySale `settle()`: ~220k base gas
+/// - Provides 2x safety margin for investment operations
+/// - Still only 1% of Ethereum block gas limit (30M)
+///
+/// If operations consistently fail with "gas required exceeds allowance",
+/// this constant may need to be increased further.
 #[cfg(feature = "evm")]
-pub(crate) const DEFAULT_ERC20_DECIMALS: u8 = 18;
-#[cfg(feature = "evm")]
-pub(crate) const GAS_ESTIMATE_INITIAL: u64 = 100_000;
-#[cfg(feature = "evm")]
-pub(crate) const CONTRACT_CALL_GAS_INITIAL: u64 = 150_000;
+pub(crate) const GAS_ESTIMATE_INITIAL: u64 = 300_000;
+
+/// Gas buffer percentage for simple operations (transfers, approvals, simple admin calls).
+/// Adds 20% to estimated gas to account for block state changes.
 #[cfg(feature = "evm")]
 pub(crate) const GAS_BUFFER_SIMPLE_PERCENT: u64 = 20;
+
+/// Gas buffer percentage for complex operations (settlement, multi-step transactions).
+/// Adds 30% to estimated gas to account for higher variability.
 #[cfg(feature = "evm")]
 pub(crate) const GAS_BUFFER_COMPLEX_PERCENT: u64 = 30;
-#[cfg(feature = "evm")]
-pub(crate) const PRECOMPILE_ADDRESS_MAX: u8 = 0xff;
 
 /// Pooled connection wrapper with metadata
 #[derive(Debug)]
@@ -136,7 +157,7 @@ impl PooledConnection {
 
 /// Connection pool for a specific network
 #[derive(Debug)]
-struct NetworkConnectionPool {
+pub(crate) struct NetworkConnectionPool {
     /// Available connections
     connections: Vec<PooledConnection>,
     /// Network configuration
@@ -410,7 +431,8 @@ impl McpSdkAdapter {
         // Last byte must be 0x01-0xff (not 0x00)
         let last_byte = addr_bytes[19];
 
-        zeros && last_byte > 0 && last_byte <= PRECOMPILE_ADDRESS_MAX
+        // Note: last_byte is u8, so <= PRECOMPILE_ADDRESS_MAX (0xff) is always true
+        zeros && last_byte > 0
     }
 
     pub(crate) async fn ensure_token_metadata(

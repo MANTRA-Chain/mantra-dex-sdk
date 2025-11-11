@@ -100,6 +100,9 @@
 //! - ❌ Physical memory attacks (cold boot, DMA)
 //! - ❌ Side-channel attacks (timing, power analysis)
 
+// Allow deprecated Signature for compatibility with alloy-consensus ecosystem
+#![allow(deprecated)]
+
 use crate::error::Error;
 use bip32::{DerivationPath, Seed, XPrv};
 use bip39::Mnemonic;
@@ -194,7 +197,6 @@ impl MultiVMWallet {
     /// Get the EVM address (Ethereum-compatible)
     #[cfg(feature = "evm")]
     pub fn evm_address(&self) -> Result<alloy_primitives::Address, Error> {
-        use k256::elliptic_curve::sec1::ToEncodedPoint;
         use tiny_keccak::{Hasher, Keccak};
 
         let evm_signing_key = self.get_evm_signing_key()?;
@@ -264,7 +266,6 @@ impl MultiVMWallet {
     ) -> alloy_primitives::Signature {
         use alloy_primitives::Signature;
 
-        #[allow(deprecated)]
         Signature::from((*sig, recid))
     }
 }

@@ -190,7 +190,12 @@ impl McpSdkAdapter {
                 })?;
             // Update the priority fee if max_fee was already set
             if let Some(max_fee) = max_fee_per_gas {
-                let max_fee_u256 = alloy_primitives::U256::from_str(max_fee).unwrap();
+                let max_fee_u256 = alloy_primitives::U256::from_str(max_fee).map_err(|e| {
+                    McpServerError::InvalidArguments(format!(
+                        "Invalid max_fee_per_gas: {}",
+                        e
+                    ))
+                })?;
                 tx_request = tx_request.eip1559_fees(max_fee_u256, priority_fee_u256);
             }
         }
@@ -373,8 +378,8 @@ impl McpSdkAdapter {
                         let topic_hash =
                             alloy_primitives::B256::from_str(topic_str).map_err(|e| {
                                 McpServerError::InvalidArguments(format!(
-                                    "Invalid topic: {}",
-                                    topic_str
+                                    "Invalid topic '{}': {}",
+                                    topic_str, e
                                 ))
                             })?;
                         event_topics.push(topic_hash);
@@ -451,7 +456,7 @@ impl McpSdkAdapter {
 
         // Parse value
         let value_u256 = alloy_primitives::U256::from_str(value)
-            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid value: {}", value)))?;
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid value '{}': {}", value, e)))?;
 
         // Get wallet and EVM client
         let wallet = self.get_active_wallet_with_validation().await?;
@@ -772,15 +777,16 @@ impl McpSdkAdapter {
             .map_err(McpServerError::Sdk)?;
 
         // 8. Construct alloy Signature from k256 signature components
-        use alloy_primitives::Signature;
-
-        // Convert k256 signature directly to alloy Signature
-        #[allow(deprecated)]
-        let alloy_sig = Signature::from((sig, recid));
-
         // 9. Create signed transaction
-        let raw_bytes = tx.encode_signed(&alloy_sig);
-        let signed_tx = SignedEip1559Transaction::new(tx.into_signed(alloy_sig), raw_bytes);
+        #[allow(deprecated)]
+        let signed_tx = {
+            use alloy_primitives::Signature;
+
+            // Convert k256 signature directly to alloy Signature
+            let alloy_sig = Signature::from((sig, recid));
+            let raw_bytes = tx.encode_signed(&alloy_sig);
+            SignedEip1559Transaction::new(tx.into_signed(alloy_sig), raw_bytes)
+        };
 
         // 10. Broadcast
         evm_client
@@ -788,6 +794,46 @@ impl McpSdkAdapter {
             .await
             .map_err(McpServerError::Sdk)
     }
+
+    // =============================================================================
+    // PrimarySale Access Control Validation Helpers
+    // =============================================================================
+
+    /// Validate that wallet has DEFAULT_ADMIN_ROLE for contract
+    ///
+    /// This helper prevents gas waste by checking role membership before
+    /// submitting transactions that require admin privileges.
+    #[cfg(feature = "evm")]
+    async fn validate_admin_role(
+        &self,
+        contract_addr: Address,
+        wallet_addr: Address,
+    ) -> McpResult<()> {
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        let has_role = primary_sale
+            .has_admin_role(wallet_addr)
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        if !has_role {
+            return Err(McpServerError::InvalidArguments(
+                format!(
+                    "Wallet {} does not have DEFAULT_ADMIN_ROLE for contract {}. \
+                    Only admins can perform this operation.",
+                    format!("{:#x}", wallet_addr),
+                    format!("{:#x}", contract_addr)
+                )
+            ));
+        }
+
+        Ok(())
+    }
+
+    // =============================================================================
+    // ERC-20 Token Operations
+    // =============================================================================
 
     /// Transfer ERC-20 tokens
     #[cfg(feature = "evm")]
@@ -926,11 +972,6 @@ impl McpSdkAdapter {
     /// Get comprehensive sale information
     #[cfg(feature = "evm")]
     pub async fn primary_sale_get_sale_info(&self, args: Value) -> McpResult<Value> {
-        debug!(
-            "SDK Adapter: Getting primary sale info with args: {:?}",
-            args
-        );
-
         let contract_address = args
             .get("contract_address")
             .and_then(|v| v.as_str())
@@ -945,23 +986,20 @@ impl McpSdkAdapter {
         let (evm_client, _chain_id) = self.get_evm_client().await?;
         let primary_sale = evm_client.primary_sale(contract_addr);
 
-        // Query all sale information
+        // Query all sale information (v2.0 - now includes name, hard_cap, accepted_tokens)
         let sale_info = primary_sale
             .get_sale_info()
             .await
             .map_err(McpServerError::Sdk)?;
 
-        // Get additional info
-        let mantra_usd = primary_sale
-            .mantra_usd()
-            .await
-            .map_err(McpServerError::Sdk)?;
+        // Get additional contract addresses
         let allowlist = primary_sale
             .allowlist()
             .await
             .map_err(McpServerError::Sdk)?;
         let multisig = primary_sale.multisig().await.map_err(McpServerError::Sdk)?;
         let issuer = primary_sale.issuer().await.map_err(McpServerError::Sdk)?;
+        let mantra = primary_sale.mantra().await.map_err(McpServerError::Sdk)?;
 
         // Format status
         let status_str = match sale_info.status {
@@ -974,32 +1012,55 @@ impl McpSdkAdapter {
             _ => "Unknown",
         };
 
-        Ok(serde_json::json!({
+        // Format accepted tokens as array of addresses
+        let accepted_tokens: Vec<String> = sale_info
+            .accepted_tokens
+            .iter()
+            .map(|addr| format!("{:#x}", addr))
+            .collect();
+
+        let response = serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_get_sale_info",
             "contract_address": format!("{:#x}", contract_addr),
-            "status": status_str,
-            "status_code": sale_info.status,
-            "is_active": sale_info.is_active,
-            "start_time": sale_info.start,
-            "end_time": sale_info.end,
-            "remaining_time_seconds": sale_info.remaining_time,
-            "soft_cap": sale_info.soft_cap.to_string(),
-            "total_contributed": sale_info.total_contributed.to_string(),
-            "investor_count": sale_info.investor_count.to_string(),
-            "commission_bps": sale_info.commission_bps,
+            "sale": {
+                "name": sale_info.name,
+                "status": status_str,
+                "status_code": sale_info.status,
+                "is_active": sale_info.is_active,
+                "start_time": sale_info.start,
+                "end_time": sale_info.end,
+                "remaining_time_seconds": sale_info.remaining_time,
+                "soft_cap": sale_info.soft_cap.to_string(),
+                "hard_cap": sale_info.hard_cap.to_string(),
+                "hard_cap_note": if sale_info.hard_cap.is_zero() { "unlimited" } else { "set" },
+                "total_contributed_normalized": sale_info.total_contributed_normalized.to_string(),
+                "remaining_capacity": sale_info.remaining_capacity.to_string(),
+                "investor_count": sale_info.investor_count.to_string(),
+                "commission_bps": sale_info.commission_bps,
+                "accepted_tokens": accepted_tokens,
+                "accepted_tokens_count": sale_info.accepted_tokens.len(),
+            },
             "contracts": {
-                "mantra_usd": format!("{:#x}", mantra_usd),
                 "allowlist": format!("{:#x}", allowlist),
                 "multisig": format!("{:#x}", multisig),
                 "issuer": format!("{:#x}", issuer),
-            }
-        }))
+                "mantra": format!("{:#x}", mantra),
+            },
+            "notes": {
+                "multi_token": "v2.0 supports multiple payment tokens (USDC, USDT, DAI, etc.)",
+                "normalized_amounts": "All amounts normalized to 18 decimals for fair comparison",
+                "hard_cap": "Hard cap = 0 means unlimited; otherwise maximum funding cap in normalized decimals"
+            },
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+
+        Ok(response)
     }
 
     /// Get investor-specific information
     #[cfg(feature = "evm")]
     pub async fn primary_sale_get_investor_info(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Getting investor info with args: {:?}", args);
-
         let contract_address = args
             .get("contract_address")
             .and_then(|v| v.as_str())
@@ -1027,42 +1088,79 @@ impl McpSdkAdapter {
         let (evm_client, _chain_id) = self.get_evm_client().await?;
         let primary_sale = evm_client.primary_sale(contract_addr);
 
-        // Query investor-specific data
-        let tokens_allocated = primary_sale
-            .tokens_for(investor_addr)
+        // Query investor-specific data (v2.0 - now includes per-token breakdown)
+        let investor_info = primary_sale
+            .get_investor_info(investor_addr)
             .await
             .map_err(McpServerError::Sdk)?;
-        let contributed = primary_sale
-            .contributed(investor_addr)
-            .await
-            .map_err(McpServerError::Sdk)?;
+
         let refunded = primary_sale
             .refunded(investor_addr)
             .await
             .map_err(McpServerError::Sdk)?;
 
-        Ok(serde_json::json!({
-            "investor_address": format!("{:#x}", investor_addr),
-            "tokens_allocated": tokens_allocated.to_string(),
-            "contributed": contributed.to_string(),
-            "has_claimed_refund": refunded,
-        }))
+        // Format per-token contributions
+        let mut contributions_by_token = serde_json::Map::new();
+        for (token_addr, amount) in &investor_info.contributions_by_token {
+            contributions_by_token
+                .insert(format!("{:#x}", token_addr), serde_json::json!(amount.to_string()));
+        }
+
+        let response = serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_get_investor_info",
+            "contract_address": format!("{:#x}", contract_addr),
+            "investor": {
+                "address": format!("{:#x}", investor_addr),
+                "contribution_normalized": investor_info.contribution_normalized.to_string(),
+                "contributions_by_token": contributions_by_token,
+                "tokens_allocated": investor_info.tokens_allocated.to_string(),
+                "is_kyc_approved": investor_info.is_kyc_approved,
+                "has_received_settlement": investor_info.has_received_settlement,
+                "has_claimed_refund": refunded,
+            },
+            "notes": {
+                "normalized": "contribution_normalized is sum across all tokens in 18 decimals",
+                "by_token": "contributions_by_token shows raw amounts in each token's native decimals"
+            },
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+
+        Ok(response)
     }
 
-    /// Invest in a primary sale
+    /// Invest in a primary sale (v2.0 - now requires token parameter)
+    ///
+    /// # Breaking Change (v2.0)
+    /// Now requires `token` parameter to specify which accepted token to invest with.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_invest",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "investor": "0x...",
+    ///   "token": "0x...",
+    ///   "amount": "1000.5",
+    ///   "amount_raw": "1000500000",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
     #[cfg(feature = "evm")]
     pub async fn primary_sale_invest(&self, args: Value) -> McpResult<Value> {
-        debug!(
-            "SDK Adapter: Investing in primary sale with args: {:?}",
-            args
-        );
-
         let contract_address = args
             .get("contract_address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
                 McpServerError::InvalidArguments("Missing contract_address".to_string())
             })?;
+
+        let token_str = args
+            .get("token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing token parameter (v2.0 requirement). Use get_accepted_tokens to see available tokens.".to_string()))?;
 
         let amount_str = args
             .get("amount")
@@ -1087,36 +1185,100 @@ impl McpSdkAdapter {
         let (evm_client, _chain_id) = self.get_evm_client().await?;
         let primary_sale = evm_client.primary_sale(contract_addr);
 
-        // Get mantraUSD token address and decimals
-        let mantra_usd_addr = primary_sale
-            .mantra_usd()
+        // Parse and validate token address
+        let token_addr = Address::from_str(token_str).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid token address: {}", e))
+        })?;
+
+        // Validate token is accepted (v2.0 multi-token support)
+        let is_accepted = primary_sale
+            .is_accepted_token(token_addr)
             .await
             .map_err(McpServerError::Sdk)?;
 
-        let mantra_usd = evm_client.erc20(mantra_usd_addr);
-        let decimals = mantra_usd.decimals().await.map_err(McpServerError::Sdk)?;
+        if !is_accepted {
+            let accepted_tokens = primary_sale
+                .get_accepted_tokens()
+                .await
+                .map_err(McpServerError::Sdk)?;
+
+            let accepted_list: Vec<String> = accepted_tokens
+                .iter()
+                .map(|addr| format!("{:#x}", addr))
+                .collect();
+
+            return Err(McpServerError::InvalidArguments(format!(
+                "Token {:#x} is not accepted by this sale.\n\
+                \n\
+                Accepted tokens:\n{}\n\
+                \n\
+                Use primary_sale_get_sale_info to see accepted tokens.",
+                token_addr,
+                accepted_list.join("\n")
+            )));
+        }
+
+        // Get token contract and decimals
+        let token = evm_client.erc20(token_addr);
+        let decimals = token.decimals().await.map_err(McpServerError::Sdk)?;
 
         // 3. Parse amount with proper decimals
         let amount_u256 = parse_units(amount_str, decimals)
             .map_err(|e| McpServerError::InvalidArguments(format!("Invalid amount: {}", e)))?;
 
-        // 4. Check allowance
-        let allowance = mantra_usd
+        // 4. Check allowance (advisory check only - actual validation happens on-chain)
+        let current_allowance = token
             .allowance(from_addr, contract_addr)
             .await
             .map_err(McpServerError::Sdk)?;
 
-        if allowance < amount_u256 {
+        // Provide helpful guidance if allowance appears insufficient
+        // Note: This is advisory only - actual validation happens on-chain
+        if current_allowance < amount_u256 {
+            // Calculate the shortfall
+            let shortfall = amount_u256 - current_allowance;
+            let shortfall_formatted = format_units(shortfall, decimals);
+
             return Err(McpServerError::InvalidArguments(
-                format!("Insufficient mantraUSD allowance. Current: {}, Required: {}. Please approve the PrimarySale contract first.",
-                    format_units(allowance, decimals),
-                    amount_str)
+                format!(
+                    "⚠️  Insufficient token allowance (advisory check).\n\
+                    \n\
+                    Token: {:#x}\n\
+                    Current Allowance: {}\n\
+                    Investment Amount: {}\n\
+                    Shortfall: {}\n\
+                    \n\
+                    ℹ️  Note: Allowance is checked before transaction submission but validated on-chain. \
+                    If you have pending approval transactions, they must be mined first.\n\
+                    \n\
+                    To approve the PrimarySale contract:\n\
+                    1. Use wallet_approve_erc20 tool\n\
+                    2. Token: {:#x}\n\
+                    3. Spender: {:#x} (PrimarySale)\n\
+                    4. Amount: {} or higher",
+                    token_addr,
+                    format_units(current_allowance, decimals),
+                    amount_str,
+                    shortfall_formatted,
+                    token_addr,
+                    contract_addr,
+                    amount_str
+                )
             ));
         }
 
-        // 5. Encode invest call
+        // Log successful allowance check for debugging
+        debug!(
+            "Allowance check passed (advisory): {} >= {} for token {:#x}",
+            format_units(current_allowance, decimals),
+            amount_str,
+            token_addr
+        );
+
+        // 5. Encode invest call (v2.0 - now requires token parameter)
         use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
         let invest_call = IPrimarySale::investCall {
+            token: token_addr,
             amount: amount_u256,
         };
         let call_data = alloy_sol_types::SolCall::abi_encode(&invest_call);
@@ -1140,21 +1302,35 @@ impl McpSdkAdapter {
             "transaction_hash": format!("{:#x}", tx_hash),
             "contract_address": format!("{:#x}", contract_addr),
             "investor": format!("{:#x}", from_addr),
+            "token": format!("{:#x}", token_addr),
             "amount": formatted_amount,
             "amount_raw": amount_u256.to_string(),
-            "mantra_usd_address": format!("{:#x}", mantra_usd_addr),
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))
     }
 
-    /// Claim refund from a failed sale
+    /// Claim refund from a failed or cancelled sale (v2.0 - claims ALL tokens)
+    ///
+    /// # Behavior Change (v2.0)
+    /// In v2.0, this operation automatically claims refunds for ALL accepted tokens
+    /// in a single transaction. The contract loops through all tokens internally.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_claim_refund",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "investor": "0x...",
+    ///   "refund_amount_normalized": "1000.5",
+    ///   "refund_amount_raw": "1000500000000000000000",
+    ///   "note": "Refund claimed for all accepted tokens in single transaction",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
     #[cfg(feature = "evm")]
     pub async fn primary_sale_claim_refund(&self, args: Value) -> McpResult<Value> {
-        use crate::protocols::evm::tx::{Eip1559Transaction, SignedEip1559Transaction};
-        use alloy_primitives::Bytes;
-
-        debug!("SDK Adapter: Claiming refund with args: {:?}", args);
-
         let contract_address = args
             .get("contract_address")
             .and_then(|v| v.as_str())
@@ -1179,7 +1355,7 @@ impl McpSdkAdapter {
         })?;
 
         // Get EVM client
-        let (evm_client, chain_id) = self.get_evm_client().await?;
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
         let primary_sale = evm_client.primary_sale(contract_addr);
 
         // Check if refund has already been claimed
@@ -1194,105 +1370,46 @@ impl McpSdkAdapter {
             ));
         }
 
-        // Get investor's contribution to show in response
-        let contributed = primary_sale
-            .contributed(from_addr)
+        // Get investor's normalized contribution to show in response (v2.0)
+        // In v2.0, all contributions are normalized to 18 decimals regardless of source token
+        let contributed_normalized = primary_sale
+            .contributed_normalized(from_addr)
             .await
             .map_err(McpServerError::Sdk)?;
 
-        if contributed.is_zero() {
+        if contributed_normalized.is_zero() {
             return Err(McpServerError::InvalidArguments(
                 "No contribution found for this address. Nothing to refund.".to_string(),
             ));
         }
-
-        // Get mantraUSD for formatting
-        let mantra_usd_addr = primary_sale
-            .mantra_usd()
-            .await
-            .map_err(McpServerError::Sdk)?;
-        let mantra_usd = evm_client.erc20(mantra_usd_addr);
-        let decimals = mantra_usd.decimals().await.map_err(McpServerError::Sdk)?;
 
         // Encode claimRefund call data using the PrimarySale interface
         use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
         let claim_refund_call = IPrimarySale::claimRefundCall {};
         let call_data = alloy_sol_types::SolCall::abi_encode(&claim_refund_call);
 
-        // Get nonce
-        let nonce = evm_client
-            .get_pending_nonce(crate::protocols::evm::types::EthAddress(from_addr))
-            .await
-            .map_err(McpServerError::Sdk)?;
-
-        // Get fee suggestion
-        let fee_suggestion = evm_client
-            .fee_suggestion()
-            .await
-            .map_err(McpServerError::Sdk)?;
-
-        // Build transaction with high initial gas limit for estimation
-        let mut tx = Eip1559Transaction::new(chain_id, nonce)
-            .to(Some(contract_addr))
-            .data(Bytes::from(call_data))
-            .gas_limit(120_000) // Refund is simpler than invest
-            .max_fee_per_gas(fee_suggestion.max_fee_per_gas.to::<u128>())
-            .max_priority_fee_per_gas(fee_suggestion.max_priority_fee_per_gas.to::<u128>());
-
-        // Estimate gas
-        let gas_estimate = evm_client
-            .estimate_gas_with_options(
-                (&tx).into(),
-                Some(crate::protocols::evm::types::EthAddress(from_addr)),
-                None,
+        // Build, sign, and broadcast transaction
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
             )
-            .await
-            .map_err(McpServerError::Sdk)?;
+            .await?;
 
-        // Add 30% buffer to gas estimate
-        let gas_limit = (gas_estimate * 130) / 100;
-        tx = tx.gas_limit(gas_limit);
-
-        // Sign transaction using MultiVM wallet with proper Ethereum derivation
-        let multivm_wallet = self
-            .get_multivm_wallet_by_address(&cosmos_addr)
-            .await?
-            .ok_or_else(|| McpServerError::Other("Wallet not found for signing".to_string()))?;
-
-        let tx_hash = tx.signature_hash();
-        let (sig, recid) = multivm_wallet
-            .sign_ethereum_tx(tx_hash.as_ref())
-            .map_err(McpServerError::Sdk)?;
-
-        // Convert k256 signature to alloy Signature
-        use alloy_primitives::Signature;
-
-        // Convert k256 signature directly to alloy Signature
-        #[allow(deprecated)]
-        let alloy_sig = Signature::from((sig, recid));
-
-        let raw_bytes = tx.encode_signed(&alloy_sig);
-        let signed_tx = SignedEip1559Transaction::new(tx.into_signed(alloy_sig), raw_bytes);
-
-        // Broadcast transaction
-        let tx_hash = evm_client
-            .send_raw_transaction(&signed_tx)
-            .await
-            .map_err(McpServerError::Sdk)?;
-
-        // Format response
-        let formatted_amount = format_units(contributed, decimals);
+        // Format response (v2.0 - normalized amounts are always 18 decimals)
+        let formatted_amount = format_units(contributed_normalized, 18);
         Ok(serde_json::json!({
             "status": "success",
             "operation": "primary_sale_claim_refund",
             "transaction_hash": format!("{:#x}", tx_hash),
             "contract_address": format!("{:#x}", contract_addr),
             "investor": format!("{:#x}", from_addr),
-            "refund_amount": formatted_amount,
-            "refund_amount_raw": contributed.to_string(),
-            "mantra_usd_address": format!("{:#x}", mantra_usd_addr),
-            "gas_limit": gas_limit,
-            "max_fee_per_gas": fee_suggestion.max_fee_per_gas.to_string(),
+            "refund_amount_normalized": formatted_amount,
+            "refund_amount_raw": contributed_normalized.to_string(),
+            "note": "v2.0: Refund claimed for all accepted tokens in single transaction",
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))
     }
@@ -1300,8 +1417,6 @@ impl McpSdkAdapter {
     /// Get all investors with pagination
     #[cfg(feature = "evm")]
     pub async fn primary_sale_get_all_investors(&self, args: Value) -> McpResult<Value> {
-        debug!("SDK Adapter: Getting all investors with args: {:?}", args);
-
         let contract_address = args
             .get("contract_address")
             .and_then(|v| v.as_str())
@@ -1316,23 +1431,1192 @@ impl McpSdkAdapter {
         let start = args.get("start").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
 
+        // Validate pagination parameters
+        if limit == 0 {
+            return Err(McpServerError::InvalidArguments(
+                "Limit must be greater than 0".to_string(),
+            ));
+        }
+        if limit > 1000 {
+            return Err(McpServerError::InvalidArguments(
+                format!("Limit too large: {}. Maximum allowed is 1000.", limit),
+            ));
+        }
+
         let (evm_client, _chain_id) = self.get_evm_client().await?;
         let primary_sale = evm_client.primary_sale(contract_addr);
 
+        // Get total count first for better error messages
+        let total_count = primary_sale
+            .investor_count()
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        let total: usize = total_count
+            .try_into()
+            .map_err(|_| McpServerError::Other(format!(
+                "Investor count overflow: {} exceeds maximum addressable size",
+                total_count
+            )))?;
+
+        // Retrieve investors with enhanced error context
         let investors = primary_sale
             .get_investors(start, limit)
             .await
-            .map_err(McpServerError::Sdk)?;
+            .map_err(|e| {
+                McpServerError::Other(format!(
+                    "Failed to retrieve investors (start: {}, limit: {}, total: {}): {}",
+                    start, limit, total, e
+                ))
+            })?;
 
         let investor_list: Vec<String> = investors
             .iter()
             .map(|addr| format!("{:#x}", addr))
             .collect();
 
-        Ok(serde_json::json!({
+        // Calculate pagination metadata
+        let returned_count = investor_list.len();
+        let has_more = start + returned_count < total;
+        let next_start = if has_more {
+            Some(start + returned_count)
+        } else {
+            None
+        };
+
+        let response = serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_get_all_investors",
+            "contract_address": format!("{:#x}", contract_addr),
+            "pagination": {
+                "start": start,
+                "limit": limit,
+                "returned": returned_count,
+                "total": total,
+                "has_more": has_more,
+                "next_start": next_start,
+            },
             "investors": investor_list,
-            "start": start,
-            "count": investor_list.len(),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+
+        Ok(response)
+    }
+
+    /// Activate a primary sale (admin only)
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_activate",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_activate(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse and validate
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // 2. Validate admin role
+        self.validate_admin_role(contract_addr, from_addr).await?;
+
+        // 3. Validate current state
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+        let current_status = primary_sale.status().await.map_err(McpServerError::Sdk)?;
+
+        if current_status != 0 {
+            let status_str = match current_status {
+                1 => "Active",
+                2 => "Ended",
+                3 => "Failed",
+                4 => "Settled",
+                5 => "Cancelled",
+                _ => "Unknown",
+            };
+            return Err(McpServerError::InvalidArguments(
+                format!("Cannot activate sale in {} status. Sale must be in Pending status.", status_str)
+            ));
+        }
+
+        // 4. Encode activate call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let activate_call = IPrimarySale::activateCall {};
+        let call_data = alloy_sol_types::SolCall::abi_encode(&activate_call);
+
+        // 5. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 6. Return response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_activate",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// End a primary sale (callable after end time)
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_end_sale",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "total_contributed": "50000.0",
+    ///   "soft_cap": "10000.0",
+    ///   "soft_cap_met": true,
+    ///   "new_status": "Ended",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_end_sale(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse addresses
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // 2. Get EVM client and validate state
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        let current_status = primary_sale.status().await.map_err(McpServerError::Sdk)?;
+        if current_status != 1 {
+            let status_str = match current_status {
+                0 => "Pending",
+                2 => "Ended",
+                3 => "Failed",
+                4 => "Settled",
+                5 => "Cancelled",
+                _ => "Unknown",
+            };
+            return Err(McpServerError::InvalidArguments(
+                format!("Cannot end sale in {} status. Sale must be in Active status.", status_str)
+            ));
+        }
+
+        let total_contributed = primary_sale
+            .total_contributed_normalized()
+            .await
+            .map_err(McpServerError::Sdk)?;
+        let soft_cap = primary_sale.soft_cap().await.map_err(McpServerError::Sdk)?;
+        let soft_cap_met = total_contributed >= soft_cap;
+
+        // 3. Encode endSale call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let end_sale_call = IPrimarySale::endSaleCall {};
+        let call_data = alloy_sol_types::SolCall::abi_encode(&end_sale_call);
+
+        // 4. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 5. Return response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_end_sale",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "total_contributed": total_contributed.to_string(),
+            "soft_cap": soft_cap.to_string(),
+            "soft_cap_met": soft_cap_met,
+            "new_status": if soft_cap_met { "Ended" } else { "Failed" },
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Settle and distribute tokens (DEPRECATED - use 3-step settlement for v2.0)
+    ///
+    /// # ⚠️ DEPRECATED (v2.0)
+    /// This method is deprecated in PrimarySale v2.0. Use the new 3-step settlement process:
+    /// 1. `primary_sale_initialize_settlement` - Pull all asset tokens upfront
+    /// 2. `primary_sale_settle_batch` - Process investors in batches (idempotent, can retry)
+    /// 3. `primary_sale_finalize_settlement` - Complete settlement and pay commission/proceeds
+    ///
+    /// The old single-step settlement does not exist in v2.0 contracts.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_settle_and_distribute",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "asset_token": "0x...",
+    ///   "asset_owner": "0x...",
+    ///   "total_contributed": "50000.0",
+    ///   "commission_amount": "500.0",
+    ///   "issuer_amount": "49500.0",
+    ///   "investors_processed": "25",
+    ///   "max_loop": 500,
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_settle_and_distribute(&self, _args: Value) -> McpResult<Value> {
+        // This method is deprecated in PrimarySale v2.0
+        Err(McpServerError::InvalidArguments(
+            "⚠️  primary_sale_settle_and_distribute is DEPRECATED in PrimarySale v2.0\n\
+            \n\
+            The single-step settlement method no longer exists in v2.0 contracts.\n\
+            Please use the new 3-step batch settlement process:\n\
+            \n\
+            Step 1: primary_sale_initialize_settlement\n\
+            - Pulls all asset tokens upfront from asset owner\n\
+            - Initializes settlement state\n\
+            \n\
+            Step 2: primary_sale_settle_batch (call multiple times)\n\
+            - Processes investors in batches (recommended: 100 per batch)\n\
+            - Distributes tokens to KYC-approved investors\n\
+            - Refunds contributions to non-approved or restricted wallets\n\
+            - Idempotent: safe to retry if transaction fails\n\
+            \n\
+            Step 3: primary_sale_finalize_settlement\n\
+            - Completes settlement after all investors processed\n\
+            - Pays commission to MANTRA\n\
+            - Pays proceeds to ISSUER\n\
+            - Returns remaining tokens to ISSUER\n\
+            \n\
+            Use primary_sale_get_settlement_progress to monitor progress.\n\
+            \n\
+            See MIGRATION_GUIDE_V2.md for detailed migration instructions.".to_string()
+        ))
+    }
+
+    /// Top up refunds pool (anyone can call) - v2.0 requires token parameter
+    ///
+    /// # Breaking Change (v2.0)
+    /// Now requires `token` parameter to specify which token to top up.
+    /// Each accepted token has a separate refund pool.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_top_up_refunds",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "funder": "0x...",
+    ///   "token": "0x...",
+    ///   "amount": "1000.5",
+    ///   "amount_raw": "1000500000",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_top_up_refunds(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let token_str = args
+            .get("token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing token parameter (v2.0 requirement). Each accepted token has a separate refund pool.".to_string()))?;
+
+        let amount_str = args
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing amount".to_string()))?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse and validate
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // 2. Get EVM client and PrimarySale
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        // Parse and validate token address
+        let token_addr = Address::from_str(token_str).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid token address: {}", e))
+        })?;
+
+        // Validate token is accepted (v2.0 multi-token support)
+        let is_accepted = primary_sale
+            .is_accepted_token(token_addr)
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        if !is_accepted {
+            let accepted_tokens = primary_sale
+                .get_accepted_tokens()
+                .await
+                .map_err(McpServerError::Sdk)?;
+
+            let accepted_list: Vec<String> = accepted_tokens
+                .iter()
+                .map(|addr| format!("{:#x}", addr))
+                .collect();
+
+            return Err(McpServerError::InvalidArguments(format!(
+                "Token {:#x} is not accepted by this sale.\n\
+                \n\
+                Accepted tokens:\n{}\n\
+                \n\
+                Use primary_sale_get_sale_info to see accepted tokens.",
+                token_addr,
+                accepted_list.join("\n")
+            )));
+        }
+
+        // Get token contract and decimals
+        let token = evm_client.erc20(token_addr);
+        let decimals = token.decimals().await.map_err(McpServerError::Sdk)?;
+
+        // 4. Parse amount
+        let amount_u256 = parse_units(amount_str, decimals)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid amount: {}", e)))?;
+
+        // 5. Check allowance (advisory check only - actual validation happens on-chain)
+        let current_allowance = token
+            .allowance(from_addr, contract_addr)
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        // Provide helpful guidance if allowance appears insufficient
+        // Note: This is advisory only - actual validation happens on-chain
+        if current_allowance < amount_u256 {
+            // Calculate the shortfall
+            let shortfall = amount_u256 - current_allowance;
+            let shortfall_formatted = format_units(shortfall, decimals);
+
+            return Err(McpServerError::InvalidArguments(format!(
+                "⚠️  Insufficient token allowance (advisory check).\n\
+                \n\
+                Token: {:#x}\n\
+                Current Allowance: {}\n\
+                Required Amount: {}\n\
+                Shortfall: {}\n\
+                \n\
+                ℹ️  Note: Allowance is checked before transaction submission but validated on-chain. \
+                If you have pending approval transactions, they must be mined first.\n\
+                \n\
+                To approve the PrimarySale contract:\n\
+                1. Use wallet_approve_erc20 tool\n\
+                2. Token: {:#x}\n\
+                3. Spender: {:#x} (PrimarySale)\n\
+                4. Amount: {} or higher",
+                token_addr,
+                format_units(current_allowance, decimals),
+                amount_str,
+                shortfall_formatted,
+                token_addr,
+                contract_addr,
+                amount_str
+            )));
+        }
+
+        // Log successful allowance check for debugging
+        debug!(
+            "Allowance check passed (advisory): {} >= {} for token {:#x} top-up",
+            format_units(current_allowance, decimals),
+            amount_str,
+            token_addr
+        );
+
+        // 6. Encode topUpRefunds call (v2.0 - now requires token parameter)
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let topup_call = IPrimarySale::topUpRefundsCall {
+            token: token_addr,
+            amount: amount_u256,
+        };
+        let call_data = alloy_sol_types::SolCall::abi_encode(&topup_call);
+
+        // 7. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 8. Format response
+        let formatted_amount = format_units(amount_u256, decimals);
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_top_up_refunds",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "funder": format!("{:#x}", from_addr),
+            "token": format!("{:#x}", token_addr),
+            "amount": formatted_amount,
+            "amount_raw": amount_u256.to_string(),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Initialize settlement - Step 1 of 3-step settlement process (v2.0)
+    ///
+    /// Pulls all asset tokens from asset owner upfront and initializes settlement state.
+    /// This is the first step of the v2.0 batch settlement process.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_initialize_settlement",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "asset_token": "0x...",
+    ///   "asset_owner": "0x...",
+    ///   "total_investors": "150",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_initialize_settlement(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let asset_token = args
+            .get("asset_token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing asset_token".to_string()))?;
+
+        let asset_owner = args
+            .get("asset_owner")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing asset_owner".to_string()))?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Parse addresses
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+        let asset_token_addr = Address::from_str(asset_token)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid asset_token: {}", e)))?;
+        let asset_owner_addr = Address::from_str(asset_owner)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid asset_owner: {}", e)))?;
+
+        // Get EVM client
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        // Get total investors for response
+        let total_investors = primary_sale
+            .investor_count()
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        // Encode initializeSettlement call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let init_call = IPrimarySale::initializeSettlementCall {
+            assetToken: asset_token_addr,
+            assetOwner: asset_owner_addr,
+        };
+        let call_data = alloy_sol_types::SolCall::abi_encode(&init_call);
+
+        // Build, sign, and broadcast (30% gas buffer for complex operation)
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_COMPLEX_PERCENT,
+            )
+            .await?;
+
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_initialize_settlement",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "asset_token": format!("{:#x}", asset_token_addr),
+            "asset_owner": format!("{:#x}", asset_owner_addr),
+            "total_investors": total_investors.to_string(),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Settle batch - Step 2 of 3-step settlement process (v2.0)
+    ///
+    /// Processes a batch of investors (distributes tokens or refunds). This operation is
+    /// idempotent and can be called multiple times to process all investors in batches.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_settle_batch",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "batch_size": "100",
+    ///   "restricted_wallets_count": "2",
+    ///   "processed": "100",
+    ///   "total": "150",
+    ///   "progress_percentage": "66.67",
+    ///   "is_complete": false,
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_settle_batch(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let batch_size = args
+            .get("batch_size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100);
+
+        let restricted_wallets: Vec<String> = args
+            .get("restricted_wallets")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Parse addresses
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // Parse restricted wallet addresses
+        let restricted_addrs: Vec<Address> = restricted_wallets
+            .iter()
+            .map(|addr_str| {
+                Address::from_str(addr_str)
+                    .map_err(|e| McpServerError::InvalidArguments(format!("Invalid restricted wallet address {}: {}", addr_str, e)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Get EVM client and settlement progress
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        let (processed, total, _, is_complete) = primary_sale
+            .get_settlement_progress()
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        // Encode settleBatch call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let batch_call = IPrimarySale::settleBatchCall {
+            batchSize: U256::from(batch_size),
+            restrictedWallets: restricted_addrs.clone(),
+        };
+        let call_data = alloy_sol_types::SolCall::abi_encode(&batch_call);
+
+        // Build, sign, and broadcast (30% gas buffer for complex operation)
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_COMPLEX_PERCENT,
+            )
+            .await?;
+
+        // Calculate progress percentage
+        let progress_percentage = if !total.is_zero() {
+            (processed.saturating_mul(U256::from(10000)) / total).to::<u64>() as f64 / 100.0
+        } else {
+            0.0
+        };
+
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_settle_batch",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "batch_size": batch_size,
+            "restricted_wallets_count": restricted_addrs.len(),
+            "processed": processed.to_string(),
+            "total": total.to_string(),
+            "progress_percentage": format!("{:.2}", progress_percentage),
+            "is_complete": is_complete,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Finalize settlement - Step 3 of 3-step settlement process (v2.0)
+    ///
+    /// Completes settlement after all investors have been processed. Pays commission to MANTRA,
+    /// pays proceeds to ISSUER, and returns remaining tokens to ISSUER.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_finalize_settlement",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "is_complete": true,
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_finalize_settlement(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Parse addresses
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // Get EVM client
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        // Check if can finalize
+        let can_finalize = primary_sale
+            .can_finalize_settlement()
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        if !can_finalize {
+            return Err(McpServerError::InvalidArguments(
+                "Cannot finalize settlement yet. Ensure all investors have been processed first.".to_string(),
+            ));
+        }
+
+        // Encode finalizeSettlement call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let finalize_call = IPrimarySale::finalizeSettlementCall {};
+        let call_data = alloy_sol_types::SolCall::abi_encode(&finalize_call);
+
+        // Build, sign, and broadcast (30% gas buffer for complex operation)
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_COMPLEX_PERCENT,
+            )
+            .await?;
+
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_finalize_settlement",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "is_complete": true,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Get settlement progress - Query settlement state (v2.0)
+    ///
+    /// Returns the current progress of the settlement process including processed/total
+    /// investors and whether settlement is complete.
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_get_settlement_progress",
+    ///   "contract_address": "0x...",
+    ///   "processed_investors": "75",
+    ///   "total_investors": "150",
+    ///   "is_initialized": true,
+    ///   "is_complete": false,
+    ///   "progress_percentage": "50.00",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_get_settlement_progress(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // Get EVM client
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        // Get settlement progress
+        let (processed, total, is_initialized, is_complete) = primary_sale
+            .get_settlement_progress()
+            .await
+            .map_err(McpServerError::Sdk)?;
+
+        // Calculate progress percentage
+        let progress_percentage = if !total.is_zero() {
+            (processed.saturating_mul(U256::from(10000)) / total).to::<u64>() as f64 / 100.0
+        } else {
+            0.0
+        };
+
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_get_settlement_progress",
+            "contract_address": format!("{:#x}", contract_addr),
+            "processed_investors": processed.to_string(),
+            "total_investors": total.to_string(),
+            "is_initialized": is_initialized,
+            "is_complete": is_complete,
+            "progress_percentage": format!("{:.2}", progress_percentage),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Cancel a primary sale (admin only)
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_cancel",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "previous_status": "Active",
+    ///   "new_status": "Cancelled",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_cancel(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse addresses
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // 2. Get current status and validate
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        let current_status = primary_sale.status().await.map_err(McpServerError::Sdk)?;
+
+        let status_str = match current_status {
+            0 => "Pending",
+            1 => "Active",
+            2 => "Ended",
+            3 => "Failed",
+            4 => "Settled",
+            5 => "Cancelled",
+            _ => "Unknown",
+        };
+
+        if current_status != 0 && current_status != 1 {
+            return Err(McpServerError::InvalidArguments(
+                format!("Cannot cancel sale in {} status. Sale must be in Pending or Active status.", status_str)
+            ));
+        }
+
+        // 3. Encode cancel call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let cancel_call = IPrimarySale::cancelCall {};
+        let call_data = alloy_sol_types::SolCall::abi_encode(&cancel_call);
+
+        // 4. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 5. Return response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_cancel",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "previous_status": status_str,
+            "new_status": "Cancelled",
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Pause primary sale contract (admin only)
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_pause",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_pause(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse and validate
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // 2. Encode pause call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let pause_call = IPrimarySale::pauseCall {};
+        let call_data = alloy_sol_types::SolCall::abi_encode(&pause_call);
+
+        // 3. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 4. Return response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_pause",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Unpause primary sale contract (admin only)
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_unpause",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_unpause(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse and validate
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+
+        // 2. Encode unpause call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let unpause_call = IPrimarySale::unpauseCall {};
+        let call_data = alloy_sol_types::SolCall::abi_encode(&unpause_call);
+
+        // 3. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 4. Return response
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_unpause",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+
+    /// Emergency withdraw ERC-20 tokens (admin only, only when Cancelled)
+    ///
+    /// # Returns
+    /// ```json
+    /// {
+    ///   "status": "success",
+    ///   "operation": "primary_sale_emergency_withdraw",
+    ///   "transaction_hash": "0x...",
+    ///   "contract_address": "0x...",
+    ///   "caller": "0x...",
+    ///   "token_address": "0x...",
+    ///   "recipient": "0x...",
+    ///   "amount": "1000.5",
+    ///   "amount_raw": "1000500000",
+    ///   "timestamp": "2025-01-01T00:00:00Z"
+    /// }
+    /// ```
+    #[cfg(feature = "evm")]
+    pub async fn primary_sale_emergency_withdraw(&self, args: Value) -> McpResult<Value> {
+        let contract_address = args
+            .get("contract_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("Missing contract_address".to_string())
+            })?;
+
+        let token_address = args
+            .get("token_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing token_address".to_string()))?;
+
+        let recipient = args
+            .get("recipient")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing recipient".to_string()))?;
+
+        let amount_str = args
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpServerError::InvalidArguments("Missing amount".to_string()))?;
+
+        let wallet_address = args
+            .get("wallet_address")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // 1. Parse all addresses and amount
+        let (cosmos_addr, evm_addr) = self.get_wallet_evm_address(wallet_address).await?;
+        let from_addr = Address::from_str(&evm_addr).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid wallet address: {}", e))
+        })?;
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid contract address: {}", e))
+        })?;
+        let token_addr = Address::from_str(token_address).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid token_address: {}", e))
+        })?;
+        let recipient_addr = Address::from_str(recipient)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid recipient: {}", e)))?;
+
+        // 2. Get EVM client, validate state, and get token metadata
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+        let primary_sale = evm_client.primary_sale(contract_addr);
+
+        let current_status = primary_sale.status().await.map_err(McpServerError::Sdk)?;
+        if current_status != 5 {
+            let status_str = match current_status {
+                0 => "Pending",
+                1 => "Active",
+                2 => "Ended",
+                3 => "Failed",
+                4 => "Settled",
+                _ => "Unknown",
+            };
+            return Err(McpServerError::InvalidArguments(
+                format!("Cannot emergency withdraw in {} status. Sale must be Cancelled.", status_str)
+            ));
+        }
+
+        let erc20 = evm_client.erc20(token_addr);
+        let decimals = erc20.decimals().await.map_err(McpServerError::Sdk)?;
+
+        // 3. Parse amount
+        let amount_u256 = parse_units(amount_str, decimals)
+            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid amount: {}", e)))?;
+
+        // 4. Encode emergencyWithdrawERC20 call
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+        let withdraw_call = IPrimarySale::emergencyWithdrawERC20Call {
+            token: token_addr,
+            recipient: recipient_addr,
+            amount: amount_u256,
+        };
+        let call_data = alloy_sol_types::SolCall::abi_encode(&withdraw_call);
+
+        // 5. Build, sign, and broadcast
+        let tx_hash = self
+            .build_sign_and_broadcast_transaction(
+                contract_addr,
+                call_data,
+                U256::ZERO,
+                &cosmos_addr,
+                GAS_BUFFER_SIMPLE_PERCENT,
+            )
+            .await?;
+
+        // 6. Format response
+        let formatted_amount = format_units(amount_u256, decimals);
+        Ok(serde_json::json!({
+            "status": "success",
+            "operation": "primary_sale_emergency_withdraw",
+            "transaction_hash": format!("{:#x}", tx_hash),
+            "contract_address": format!("{:#x}", contract_addr),
+            "caller": format!("{:#x}", from_addr),
+            "token_address": format!("{:#x}", token_addr),
+            "recipient": format!("{:#x}", recipient_addr),
+            "amount": formatted_amount,
+            "amount_raw": amount_u256.to_string(),
+            "timestamp": chrono::Utc::now().to_rfc3339()
         }))
     }
 }

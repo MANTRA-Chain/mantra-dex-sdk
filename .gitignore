@@ -10,13 +10,14 @@ artifacts/
 .idea/
 *.iml
 .claude
+PRPs/
 
 # macOS
 .DS_Store
 
 # Auto-gen
 .cargo-ok
-PRPs/
+#PRPs/
 
 .env
 *.log

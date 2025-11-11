@@ -427,6 +427,7 @@ impl EvmClient {
         call: T,
         wallet: &crate::wallet::MultiVMWallet,
         value: Option<U256>,
+        gas_buffer_percent: Option<u64>,
     ) -> Result<B256, Error> {
         // 1. Encode contract call data
         let data = call.abi_encode();
@@ -448,9 +449,14 @@ impl EvmClient {
             access_list: Default::default(),
             from: None,
         };
-        let gas_limit = self
+        let mut gas_limit = self
             .estimate_gas_with_options(tx_request, Some(from), None)
             .await?;
+
+        // Apply gas buffer if specified
+        if let Some(buffer_percent) = gas_buffer_percent {
+            gas_limit = (gas_limit * (100 + buffer_percent)) / 100;
+        }
 
         // 4. Get fee suggestion (EIP-1559)
         let fee_data = self.fee_suggestion().await?;
