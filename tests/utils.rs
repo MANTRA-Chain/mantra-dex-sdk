@@ -105,6 +105,8 @@ pub mod test_utils {
                     gas_adjustment: network_constants.default_gas_adjustment,
                     native_denom: network_constants.native_denom.clone(),
                     contracts: Default::default(),
+                    evm_rpc_url: None,
+                    evm_chain_id: None,
                 }
             });
 

@@ -1,3 +1,6 @@
+// Allow deprecated Signature for compatibility with alloy-consensus ecosystem
+#![allow(deprecated)]
+
 #[cfg(feature = "evm")]
 use alloy_consensus::{SignableTransaction, Signed, TxEip1559};
 #[cfg(feature = "evm")]

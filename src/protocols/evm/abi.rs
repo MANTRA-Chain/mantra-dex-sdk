@@ -164,7 +164,7 @@ impl AbiEncoder {
 
     /// Decode function call result
     pub fn decode_function_result(
-        function: &Function,
+        _function: &Function,
         data: &[u8],
     ) -> Result<Vec<serde_json::Value>, Error> {
         // TODO: Implement result decoding using alloy-sol-types

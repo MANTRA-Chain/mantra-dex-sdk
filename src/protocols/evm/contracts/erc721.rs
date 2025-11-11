@@ -107,7 +107,7 @@ impl Erc721 {
             tokenId: token_id,
         };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 
@@ -125,7 +125,7 @@ impl Erc721 {
             tokenId: token_id,
         };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 
@@ -145,7 +145,7 @@ impl Erc721 {
             data: data.into(),
         };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 
@@ -161,7 +161,7 @@ impl Erc721 {
             tokenId: token_id,
         };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 
@@ -174,7 +174,7 @@ impl Erc721 {
     ) -> Result<alloy_primitives::B256, Error> {
         let call = IERC721::setApprovalForAllCall { operator, approved };
         self.client
-            .send_contract_call(self.address, call, wallet, None)
+            .send_contract_call(self.address, call, wallet, None, None)
             .await
     }
 }

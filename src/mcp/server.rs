@@ -3201,6 +3201,188 @@ impl McpToolProvider for MantraDexMcpServer {
                     "required": ["contract_address"]
                 }
             }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_activate",
+                "description": "Activate a primary sale (admin only, transitions from Pending to Active)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Admin wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_end_sale",
+                "description": "End a primary sale after end time (transitions to Ended if soft cap met, Failed otherwise)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_settle_and_distribute",
+                "description": "Settle sale and distribute RWA tokens to all investors (settlement role only, complex operation)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "asset_token": {
+                            "type": "string",
+                            "description": "RWA token contract address (0x...)"
+                        },
+                        "asset_owner": {
+                            "type": "string",
+                            "description": "Asset owner address (0x...) that will provide RWA tokens"
+                        },
+                        "max_loop": {
+                            "type": "integer",
+                            "description": "Maximum investors to process in one transaction (max 500)",
+                            "minimum": 1,
+                            "maximum": 500
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Settlement role wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address", "asset_token", "asset_owner", "max_loop"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_top_up_refunds",
+                "description": "Top up refund pool with mantraUSD (anyone can call, requires allowance)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "amount": {
+                            "type": "string",
+                            "description": "Amount of mantraUSD to add to refund pool (in human-readable units)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address", "amount"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_cancel",
+                "description": "Cancel a primary sale (admin only, from Pending or Active status)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Admin wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_pause",
+                "description": "Pause primary sale contract (admin only, blocks invest and refund operations)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Admin wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_unpause",
+                "description": "Unpause primary sale contract (admin only, re-enables invest and refund operations)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Admin wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }
+            }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "primary_sale_emergency_withdraw",
+                "description": "Emergency withdraw stuck ERC-20 tokens (admin only, only when Cancelled)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "PrimarySale contract address (0x...)"
+                        },
+                        "token_address": {
+                            "type": "string",
+                            "description": "ERC-20 token contract address to withdraw (0x...)"
+                        },
+                        "recipient": {
+                            "type": "string",
+                            "description": "Recipient address for withdrawn tokens (0x...)"
+                        },
+                        "amount": {
+                            "type": "string",
+                            "description": "Amount to withdraw (in human-readable units)"
+                        },
+                        "wallet_address": {
+                            "type": "string",
+                            "description": "Admin wallet address (optional, uses active wallet if not provided)"
+                        }
+                    },
+                    "required": ["contract_address", "token_address", "recipient", "amount"]
+                }
+            }),
         ]
     }
 
@@ -3284,6 +3466,26 @@ impl McpToolProvider for MantraDexMcpServer {
             #[cfg(feature = "evm")]
             "primary_sale_get_all_investors" => {
                 self.handle_primary_sale_get_all_investors(arguments).await
+            }
+            #[cfg(feature = "evm")]
+            "primary_sale_activate" => self.handle_primary_sale_activate(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_end_sale" => self.handle_primary_sale_end_sale(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_settle_and_distribute" => {
+                self.handle_primary_sale_settle_and_distribute(arguments).await
+            }
+            #[cfg(feature = "evm")]
+            "primary_sale_top_up_refunds" => self.handle_primary_sale_top_up_refunds(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_cancel" => self.handle_primary_sale_cancel(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_pause" => self.handle_primary_sale_pause(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_unpause" => self.handle_primary_sale_unpause(arguments).await,
+            #[cfg(feature = "evm")]
+            "primary_sale_emergency_withdraw" => {
+                self.handle_primary_sale_emergency_withdraw(arguments).await
             }
 
             _ => Err(McpServerError::UnknownTool(tool_name.to_string())),
@@ -4989,10 +5191,24 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_get_sale_info tool call");
-        self.state
+        let result = self.state
             .sdk_adapter
             .primary_sale_get_sale_info(arguments)
-            .await
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
     }
 
     /// Handle primary_sale_get_investor_info tool
@@ -5005,10 +5221,24 @@ impl MantraDexMcpServer {
             ?arguments,
             "Handling primary_sale_get_investor_info tool call"
         );
-        self.state
+        let result = self.state
             .sdk_adapter
             .primary_sale_get_investor_info(arguments)
-            .await
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
     }
 
     /// Handle primary_sale_invest tool
@@ -5018,7 +5248,21 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_invest tool call");
-        self.state.sdk_adapter.primary_sale_invest(arguments).await
+        let result = self.state.sdk_adapter.primary_sale_invest(arguments).await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
     }
 
     /// Handle primary_sale_claim_refund tool
@@ -5028,10 +5272,24 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_claim_refund tool call");
-        self.state
+        let result = self.state
             .sdk_adapter
             .primary_sale_claim_refund(arguments)
-            .await
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
     }
 
     /// Handle primary_sale_get_all_investors tool
@@ -5044,10 +5302,246 @@ impl MantraDexMcpServer {
             ?arguments,
             "Handling primary_sale_get_all_investors tool call"
         );
-        self.state
+        let result = self.state
             .sdk_adapter
             .primary_sale_get_all_investors(arguments)
-            .await
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_activate tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_activate(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_activate tool call");
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_activate(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_end_sale tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_end_sale(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_end_sale tool call");
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_end_sale(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_settle_and_distribute tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_settle_and_distribute(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(
+            ?arguments,
+            "Handling primary_sale_settle_and_distribute tool call"
+        );
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_settle_and_distribute(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_top_up_refunds tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_top_up_refunds(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_top_up_refunds tool call");
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_top_up_refunds(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_cancel tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_cancel(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_cancel tool call");
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_cancel(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_pause tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_pause(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_pause tool call");
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_pause(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_unpause tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_unpause(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(?arguments, "Handling primary_sale_unpause tool call");
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_unpause(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
+    }
+
+    /// Handle primary_sale_emergency_withdraw tool
+    #[cfg(feature = "evm")]
+    async fn handle_primary_sale_emergency_withdraw(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(
+            ?arguments,
+            "Handling primary_sale_emergency_withdraw tool call"
+        );
+        let result = self.state
+            .sdk_adapter
+            .primary_sale_emergency_withdraw(arguments)
+            .await?;
+
+        // Format the response as readable text
+        let response_text = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|_| result.to_string());
+
+        // Return proper MCP response format
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_text
+                }
+            ]
+        }))
     }
 }
 
