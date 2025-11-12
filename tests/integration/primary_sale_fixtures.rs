@@ -24,15 +24,15 @@ pub const MOCK_ISSUER_ADDR: &str = "0x7777777777777777777777777777777777777777";
 pub struct MockSaleInfo {
     pub status: u8,
     pub status_name: &'static str,
-    pub name: &'static str,                    // NEW v2.0
-    pub hard_cap: U256,                         // NEW v2.0
+    pub name: &'static str, // NEW v2.0
+    pub hard_cap: U256,     // NEW v2.0
     pub is_active: bool,
     pub start_time: u64,
     pub end_time: u64,
     pub soft_cap: U256,
-    pub total_contributed_normalized: U256,     // RENAMED in v2.0
-    pub remaining_capacity: U256,               // NEW v2.0
-    pub accepted_tokens: Vec<&'static str>,     // NEW v2.0
+    pub total_contributed_normalized: U256, // RENAMED in v2.0
+    pub remaining_capacity: U256,           // NEW v2.0
+    pub accepted_tokens: Vec<&'static str>, // NEW v2.0
     pub investor_count: U256,
     pub commission_bps: u16,
 }
@@ -210,11 +210,11 @@ impl MockSaleInfo {
 /// Mock investor information (v2.0)
 pub struct MockInvestorInfo {
     pub address: String,
-    pub contribution_normalized: U256,                    // RENAMED in v2.0
-    pub contributions_by_token: Vec<(String, U256)>,      // NEW v2.0
+    pub contribution_normalized: U256, // RENAMED in v2.0
+    pub contributions_by_token: Vec<(String, U256)>, // NEW v2.0
     pub tokens_allocated: U256,
-    pub is_kyc_approved: bool,                            // NEW v2.0
-    pub has_received_settlement: bool,                     // NEW v2.0 (renamed from has_claimed_refund)
+    pub is_kyc_approved: bool,         // NEW v2.0
+    pub has_received_settlement: bool, // NEW v2.0 (renamed from has_claimed_refund)
 }
 
 impl MockInvestorInfo {
@@ -225,8 +225,14 @@ impl MockInvestorInfo {
             address: MOCK_INVESTOR_ADDR.to_string(),
             contribution_normalized: normalized_amount,
             contributions_by_token: vec![
-                (MOCK_MANTRA_USD_ADDR.to_string(), normalized_amount / U256::from(2)),
-                (MOCK_USDC_ADDR.to_string(), normalized_amount / U256::from(2)),
+                (
+                    MOCK_MANTRA_USD_ADDR.to_string(),
+                    normalized_amount / U256::from(2),
+                ),
+                (
+                    MOCK_USDC_ADDR.to_string(),
+                    normalized_amount / U256::from(2),
+                ),
             ],
             tokens_allocated: U256::from(amount),
             is_kyc_approved: true,
@@ -240,9 +246,7 @@ impl MockInvestorInfo {
         Self {
             address: MOCK_INVESTOR_ADDR.to_string(),
             contribution_normalized: amount,
-            contributions_by_token: vec![
-                (MOCK_MANTRA_USD_ADDR.to_string(), amount),
-            ],
+            contributions_by_token: vec![(MOCK_MANTRA_USD_ADDR.to_string(), amount)],
             tokens_allocated: U256::from(1000_000_000_000_000_000_000u128),
             is_kyc_approved: true,
             has_received_settlement: true,
@@ -255,9 +259,7 @@ impl MockInvestorInfo {
         Self {
             address: MOCK_INVESTOR_ADDR.to_string(),
             contribution_normalized: amount,
-            contributions_by_token: vec![
-                (MOCK_USDC_ADDR.to_string(), amount),
-            ],
+            contributions_by_token: vec![(MOCK_USDC_ADDR.to_string(), amount)],
             tokens_allocated: U256::ZERO,
             is_kyc_approved: false,
             has_received_settlement: false,
@@ -367,7 +369,9 @@ impl MockSettlementProgress {
     pub fn to_json_response(&self) -> Value {
         let progress_percentage = if !self.total_investors.is_zero() {
             let pct = (self.processed_investors.saturating_mul(U256::from(10000))
-                / self.total_investors).to::<u64>() as f64 / 100.0;
+                / self.total_investors)
+                .to::<u64>() as f64
+                / 100.0;
             format!("{:.2}", pct)
         } else {
             "0.00".to_string()
@@ -401,7 +405,12 @@ pub fn mock_initialize_settlement_response(total_investors: u64) -> Value {
 }
 
 /// Helper to create settle batch response (v2.0)
-pub fn mock_settle_batch_response(batch_size: u64, processed: u64, total: u64, is_complete: bool) -> Value {
+pub fn mock_settle_batch_response(
+    batch_size: u64,
+    processed: u64,
+    total: u64,
+    is_complete: bool,
+) -> Value {
     let progress_percentage = if total > 0 {
         format!("{:.2}", (processed as f64 / total as f64) * 100.0)
     } else {

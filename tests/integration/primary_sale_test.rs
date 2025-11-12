@@ -116,10 +116,7 @@ mod primary_sale_unit_tests {
     /// Test transaction response structure
     #[test]
     fn test_transaction_response_structure() {
-        let response = mock_transaction_response(
-            "primary_sale_invest",
-            "0xabc123"
-        );
+        let response = mock_transaction_response("primary_sale_invest", "0xabc123");
 
         assert_eq!(response["status"], "success");
         assert_eq!(response["operation"], "primary_sale_invest");
@@ -135,7 +132,7 @@ mod primary_sale_unit_tests {
             "100000000000000000000",
             "500000000000000000",
             "99500000000000000000",
-            42
+            42,
         );
 
         assert_eq!(response["status"], "success");
@@ -212,12 +209,16 @@ mod primary_sale_unit_tests {
         // Valid addresses
         assert!(is_valid_eth_address(MOCK_CONTRACT_ADDR));
         assert!(is_valid_eth_address(MOCK_INVESTOR_ADDR));
-        assert!(is_valid_eth_address("0x0000000000000000000000000000000000000000"));
+        assert!(is_valid_eth_address(
+            "0x0000000000000000000000000000000000000000"
+        ));
 
         // Invalid addresses
         assert!(!is_valid_eth_address("not_an_address"));
         assert!(!is_valid_eth_address("0x123")); // Too short
-        assert!(!is_valid_eth_address("1234567890abcdef1234567890abcdef12345678")); // Missing 0x
+        assert!(!is_valid_eth_address(
+            "1234567890abcdef1234567890abcdef12345678"
+        )); // Missing 0x
         assert!(!is_valid_eth_address("0xZZZZ")); // Invalid hex
     }
 
@@ -328,8 +329,8 @@ mod primary_sale_testnet_tests {
     fn check_testnet_env() -> Result<(String, String, String), String> {
         let contract = env::var("TESTNET_PRIMARY_SALE_CONTRACT")
             .map_err(|_| "TESTNET_PRIMARY_SALE_CONTRACT not set")?;
-        let mnemonic = env::var("TESTNET_WALLET_MNEMONIC")
-            .map_err(|_| "TESTNET_WALLET_MNEMONIC not set")?;
+        let mnemonic =
+            env::var("TESTNET_WALLET_MNEMONIC").map_err(|_| "TESTNET_WALLET_MNEMONIC not set")?;
         let rpc_url = env::var("TESTNET_EVM_RPC_URL")
             .unwrap_or_else(|_| "https://rpc.example.com".to_string());
 
@@ -539,7 +540,9 @@ mod primary_sale_testnet_tests {
         // - Asset owner has sufficient balance and allowance
         // - Sale is in Ended status
 
-        println!("Test requires admin wallet, Ended sale, and sufficient token balances/allowances");
+        println!(
+            "Test requires admin wallet, Ended sale, and sufficient token balances/allowances"
+        );
     }
 
     /// Test topping up refund pool

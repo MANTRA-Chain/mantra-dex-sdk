@@ -43,6 +43,12 @@ pub mod erc20;
 #[cfg(feature = "evm")]
 pub mod erc721;
 #[cfg(feature = "evm")]
+pub mod narrative_generator;
+#[cfg(feature = "evm")]
+pub mod token_metadata;
+#[cfg(feature = "evm")]
+pub mod transaction_decoder;
+#[cfg(feature = "evm")]
 pub mod tx;
 #[cfg(feature = "evm")]
 pub mod types;

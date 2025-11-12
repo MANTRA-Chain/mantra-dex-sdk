@@ -31,6 +31,8 @@ pub struct EvmClient {
     provider: alloy_provider::RootProvider<Http<Client>>,
     /// Chain ID for transaction signing
     chain_id: u64,
+    /// Token metadata cache (shared across clones)
+    token_metadata_cache: std::sync::Arc<crate::protocols::evm::token_metadata::TokenMetadataCache>,
 }
 
 #[cfg(feature = "evm")]
@@ -41,7 +43,13 @@ impl EvmClient {
             .map_err(|e| Error::Config(format!("Invalid RPC URL: {}", e)))?;
         let provider = ProviderBuilder::new().on_http(url);
 
-        Ok(Self { provider, chain_id })
+        Ok(Self {
+            provider,
+            chain_id,
+            token_metadata_cache: std::sync::Arc::new(
+                crate::protocols::evm::token_metadata::TokenMetadataCache::new(),
+            ),
+        })
     }
 
     /// Execute a read-only contract call
@@ -343,6 +351,121 @@ impl EvmClient {
         Ok(tx)
     }
 
+    /// Get multiple transactions by hash in parallel
+    ///
+    /// Fetches transactions concurrently with rate limiting to prevent overwhelming
+    /// the RPC node. Returns partial results if some transactions fail to fetch.
+    ///
+    /// # Arguments
+    /// * `tx_hashes` - Array of transaction hashes to fetch (max 50)
+    ///
+    /// # Returns
+    /// * Vector of results where each entry is either:
+    ///   - `Ok(Some(tx))` - Transaction found and fetched successfully
+    ///   - `Ok(None)` - Transaction not found (valid hash but doesn't exist)
+    ///   - `Err(e)` - RPC error occurred during fetch
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use mantra_sdk::protocols::evm::client::EvmClient;
+    /// # use alloy_primitives::B256;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = EvmClient::new("https://evm.dukong.mantrachain.io", 5887).await?;
+    /// let hashes = vec![/* transaction hashes */];
+    /// let results = client.get_transactions_batch(&hashes).await;
+    ///
+    /// for (hash, result) in hashes.iter().zip(results.iter()) {
+    ///     match result {
+    ///         Ok(Some(tx)) => println!("Transaction {}: {:?}", hash, tx),
+    ///         Ok(None) => println!("Transaction {} not found", hash),
+    ///         Err(e) => println!("Error fetching {}: {}", hash, e),
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_transactions_batch(
+        &self,
+        tx_hashes: &[B256],
+    ) -> Vec<Result<Option<alloy_rpc_types_eth::Transaction>, Error>> {
+        use futures::future::join_all;
+        use tokio::time::timeout;
+
+        // Limit batch size to prevent overwhelming RPC
+        const MAX_BATCH_SIZE: usize = 50;
+        const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+        let tx_hashes = if tx_hashes.len() > MAX_BATCH_SIZE {
+            &tx_hashes[..MAX_BATCH_SIZE]
+        } else {
+            tx_hashes
+        };
+
+        // Create concurrent fetch tasks with timeout
+        let fetch_tasks = tx_hashes.iter().map(|&hash| {
+            let provider = self.provider.clone();
+            async move {
+                let fetch_result =
+                    timeout(REQUEST_TIMEOUT, provider.get_transaction_by_hash(hash)).await;
+
+                match fetch_result {
+                    Ok(Ok(tx)) => Ok(tx),
+                    Ok(Err(e)) => Err(EvmError::RpcError(e.to_string()).into()),
+                    Err(_) => {
+                        Err(EvmError::RpcError("Transaction fetch timed out".to_string()).into())
+                    }
+                }
+            }
+        });
+
+        // Execute all fetches in parallel
+        join_all(fetch_tasks).await
+    }
+
+    /// Get multiple transaction receipts by hash in parallel
+    ///
+    /// Fetches transaction receipts concurrently for multiple transactions.
+    /// Useful for checking transaction success/failure status in batch.
+    ///
+    /// # Arguments
+    /// * `tx_hashes` - Array of transaction hashes to fetch receipts for
+    ///
+    /// # Returns
+    /// * Vector of results where each entry corresponds to a transaction receipt
+    pub async fn get_transaction_receipts_batch(
+        &self,
+        tx_hashes: &[B256],
+    ) -> Vec<Result<Option<alloy_rpc_types_eth::TransactionReceipt>, Error>> {
+        use futures::future::join_all;
+        use tokio::time::timeout;
+
+        const MAX_BATCH_SIZE: usize = 50;
+        const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+        let tx_hashes = if tx_hashes.len() > MAX_BATCH_SIZE {
+            &tx_hashes[..MAX_BATCH_SIZE]
+        } else {
+            tx_hashes
+        };
+
+        let fetch_tasks = tx_hashes.iter().map(|&hash| {
+            let provider = self.provider.clone();
+            async move {
+                let fetch_result =
+                    timeout(REQUEST_TIMEOUT, provider.get_transaction_receipt(hash)).await;
+
+                match fetch_result {
+                    Ok(Ok(receipt)) => Ok(receipt),
+                    Ok(Err(e)) => Err(EvmError::RpcError(e.to_string()).into()),
+                    Err(_) => Err(EvmError::RpcError("Receipt fetch timed out".to_string()).into()),
+                }
+            }
+        });
+
+        join_all(fetch_tasks).await
+    }
+
     /// Get code at address
     pub async fn get_code(
         &self,
@@ -389,6 +512,13 @@ impl EvmClient {
     /// Get the chain ID
     pub fn chain_id(&self) -> u64 {
         self.chain_id
+    }
+
+    /// Get the token metadata cache
+    pub fn token_metadata_cache(
+        &self,
+    ) -> &std::sync::Arc<crate::protocols::evm::token_metadata::TokenMetadataCache> {
+        &self.token_metadata_cache
     }
 
     /// Submit already-signed transaction bytes to the network.

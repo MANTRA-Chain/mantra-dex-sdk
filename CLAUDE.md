@@ -261,6 +261,77 @@ Pending ──activate()──> Active ──endSale()──> Ended ──settle
 - Validate commission rates before deployment
 - Ensure asset owner approves contract before settlement
 
+## EVM Transaction Analysis Tools
+
+The SDK includes tools for decoding and analyzing EVM transaction history with human-readable narratives.
+
+### Overview
+
+The transaction analysis system consists of two main components:
+- **TransactionDecoder** - Decodes transaction input data by matching function selectors to known contract ABIs
+- **NarrativeGenerator** - Converts decoded transaction data into human-readable narratives
+
+### Supported Contract Types
+
+- **ERC-20**: Standard token operations (transfer, approve, transferFrom)
+- **PrimarySale v2.0**: All primary sale contract functions including investment, settlement, refunds, and admin operations
+
+### MCP Tool: `evm_analyze_transaction_history`
+
+Analyzes one or more EVM transactions and generates human-readable narratives.
+
+**Parameters:**
+- `transaction_hashes` - Array of transaction hashes to analyze (e.g., `["0xabc...", "0xdef..."]`)
+
+**Returns:**
+- Sequential narrative describing what happened in the transactions
+- Detailed transaction information including decoded function calls and parameters
+- Transaction status (success/failure)
+
+**Example Usage:**
+
+```json
+{
+  "tool": "evm_analyze_transaction_history",
+  "arguments": {
+    "transaction_hashes": [
+      "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    ]
+  }
+}
+```
+
+**Output Example:**
+```
+First. you approved 0x2222...2222 to spend 1000.0 tokens from contract at 0x3333...3333 [tx: 0x1234...cdef]
+```
+
+### Use Cases
+
+- **Transaction Debugging**: Understand what a transaction actually did by viewing decoded function calls
+- **Audit Trails**: Generate human-readable transaction histories for compliance and auditing
+- **User Activity Monitoring**: Track user interactions with smart contracts
+- **Failed Transaction Analysis**: Understand why transactions failed by examining decoded input data
+
+### Implementation Details
+
+**Function Selector Matching:**
+- Uses the first 4 bytes of transaction input data as the function selector
+- Matches against known contract ABIs (ERC-20, PrimarySale)
+- Gracefully handles unknown functions with generic narratives
+
+**Narrative Features:**
+- Address abbreviation (0x1234...5678) for readability
+- Active wallet substitution ("you" instead of address)
+- Sequential connectors (First, Then, Finally) for multi-transaction narratives
+- Amount formatting with proper decimal handling
+- Transaction hash linking for reference
+
+**Source Code References:**
+- `src/protocols/evm/transaction_decoder.rs` - Transaction decoding logic and function selector registry
+- `src/protocols/evm/narrative_generator.rs` - Human-readable narrative generation
+- `src/mcp/sdk_adapter/evm.rs:2700-2800` - MCP tool implementation
+
 ## Testing Strategy
 
 ### What to Test

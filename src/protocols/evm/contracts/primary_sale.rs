@@ -579,8 +579,14 @@ impl PrimarySale {
         }
 
         // Check ADMIN_ROLE first (v2.0 standard)
-        let has_role_call = hasRoleCall { role: admin_role, account };
-        let has_admin = self.client.call_contract(self.address, has_role_call).await?;
+        let has_role_call = hasRoleCall {
+            role: admin_role,
+            account,
+        };
+        let has_admin = self
+            .client
+            .call_contract(self.address, has_role_call)
+            .await?;
 
         if has_admin._0 {
             return Ok(true);
@@ -588,8 +594,14 @@ impl PrimarySale {
 
         // Fallback to DEFAULT_ADMIN_ROLE for backward compatibility
         let default_admin_role = alloy_primitives::B256::ZERO;
-        let has_role_call = hasRoleCall { role: default_admin_role, account };
-        let result = self.client.call_contract(self.address, has_role_call).await?;
+        let has_role_call = hasRoleCall {
+            role: default_admin_role,
+            account,
+        };
+        let result = self
+            .client
+            .call_contract(self.address, has_role_call)
+            .await?;
         Ok(result._0)
     }
 
@@ -622,7 +634,12 @@ impl PrimarySale {
     ) -> Result<(U256, U256, bool, bool), Error> {
         let call = IPrimarySale::getInvestorDistributionCall { investor };
         let result = self.client.call_contract(self.address, call).await?;
-        Ok((result.contribution, result.tokensToReceive, result.isKYCApproved, result.hasSettled))
+        Ok((
+            result.contribution,
+            result.tokensToReceive,
+            result.isKYCApproved,
+            result.hasSettled,
+        ))
     }
 
     /// Get distribution details for multiple investors (batch query)
@@ -1074,12 +1091,12 @@ impl PrimarySale {
     /// - Returns error if start index is invalid
     pub async fn get_investors(&self, start: usize, limit: usize) -> Result<Vec<Address>, Error> {
         let total_count = self.investor_count().await?;
-        let total: usize = total_count
-            .try_into()
-            .map_err(|_| Error::Other(format!(
+        let total: usize = total_count.try_into().map_err(|_| {
+            Error::Other(format!(
                 "Investor count overflow: {} exceeds maximum addressable size",
                 total_count
-            )))?;
+            ))
+        })?;
 
         // Validate start index
         if start > total {
@@ -1280,49 +1297,43 @@ fn validate_settlement_batch_params(
     // Validate batch size (1-100)
     let batch_size_u64: u64 = batch_size
         .try_into()
-        .map_err(|_| Error::Other(
-            format!("Batch size {} exceeds maximum u64", batch_size)
-        ))?;
+        .map_err(|_| Error::Other(format!("Batch size {} exceeds maximum u64", batch_size)))?;
 
     if batch_size_u64 == 0 {
         return Err(Error::Other(
-            "Batch size must be at least 1 investor".to_string()
+            "Batch size must be at least 1 investor".to_string(),
         ));
     }
 
     if batch_size_u64 > 100 {
-        return Err(Error::Other(
-            format!(
-                "Batch size {} exceeds maximum 100 investors.\n\
+        return Err(Error::Other(format!(
+            "Batch size {} exceeds maximum 100 investors.\n\
                 \n\
                 Contract enforces max 100 investors per batch to prevent gas exhaustion.\n\
                 Current batch size: {}\n\
                 Maximum allowed: 100\n\
                 \n\
                 To process {} investors, call settleBatch() {} times with batch_size=100",
-                batch_size_u64,
-                batch_size_u64,
-                batch_size_u64,
-                (batch_size_u64 + 99) / 100  // Ceiling division
-            )
-        ));
+            batch_size_u64,
+            batch_size_u64,
+            batch_size_u64,
+            (batch_size_u64 + 99) / 100 // Ceiling division
+        )));
     }
 
     // Validate restricted wallets array (max 50)
     if restricted_wallets.len() > 50 {
-        return Err(Error::Other(
-            format!(
-                "Too many restricted wallets: {} (maximum 50).\n\
+        return Err(Error::Other(format!(
+            "Too many restricted wallets: {} (maximum 50).\n\
                 \n\
                 Contract enforces max 50 restricted wallets per batch.\n\
                 Current count: {}\n\
                 Maximum allowed: 50\n\
                 \n\
                 Split your restricted wallets list across multiple settleBatch() calls.",
-                restricted_wallets.len(),
-                restricted_wallets.len()
-            )
-        ));
+            restricted_wallets.len(),
+            restricted_wallets.len()
+        )));
     }
 
     Ok(())
