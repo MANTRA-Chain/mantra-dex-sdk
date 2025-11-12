@@ -30,6 +30,7 @@
 /// # }
 /// ```
 use crate::error::Error;
+use crate::protocols::evm::contracts::allowlist::IAllowlist;
 use crate::protocols::evm::contracts::erc20::IERC20;
 use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
 use alloy_primitives::{Address, FixedBytes};
@@ -44,8 +45,12 @@ pub enum ContractType {
     ERC20,
     /// PrimarySale contract
     PrimarySale,
+    /// Allowlist contract (KYC/AML compliance)
+    Allowlist,
     /// ERC-721 NFT contract
     ERC721,
+    /// Contract creation transaction (deployment)
+    ContractCreation,
     /// Unknown or custom contract
     Unknown,
 }
@@ -83,8 +88,9 @@ impl TransactionDecoder {
     /// Create a new transaction decoder with default registry
     ///
     /// Registers all known contract functions from:
-    /// - ERC-20 (transfer, approve, transferFrom)
+    /// - ERC-20 (transfer, approve, transferFrom, mint)
     /// - PrimarySale (invest, activate, settle, etc.)
+    /// - Allowlist (setAllowedBatch)
     pub fn new() -> Self {
         let mut decoder = Self {
             decoders: HashMap::new(),
@@ -95,6 +101,9 @@ impl TransactionDecoder {
 
         // Register PrimarySale decoders
         decoder.register_primary_sale_decoders();
+
+        // Register Allowlist decoders
+        decoder.register_allowlist_decoders();
 
         decoder
     }
@@ -117,6 +126,12 @@ impl TransactionDecoder {
         self.register(
             FixedBytes::from(IERC20::transferFromCall::SELECTOR),
             Self::decode_erc20_transfer_from,
+        );
+
+        // mint(address to, uint256 amount)
+        self.register(
+            FixedBytes::from(IERC20::mintCall::SELECTOR),
+            Self::decode_erc20_mint,
         );
     }
 
@@ -292,6 +307,22 @@ impl TransactionDecoder {
             selector: format!("0x{}", hex::encode(IERC20::transferFromCall::SELECTOR)),
             parameters: serde_json::json!({
                 "from": format!("{:?}", call.from),
+                "to": format!("{:?}", call.to),
+                "amount": call.amount.to_string(),
+            }),
+            raw_input: input.to_vec(),
+        })
+    }
+
+    fn decode_erc20_mint(input: &[u8]) -> Result<DecodedCall, Error> {
+        let call = IERC20::mintCall::abi_decode(input, true)
+            .map_err(|e| Error::Other(format!("Failed to decode mint: {}", e)))?;
+
+        Ok(DecodedCall {
+            function_name: "mint".to_string(),
+            contract_type: ContractType::ERC20,
+            selector: format!("0x{}", hex::encode(IERC20::mintCall::SELECTOR)),
+            parameters: serde_json::json!({
                 "to": format!("{:?}", call.to),
                 "amount": call.amount.to_string(),
             }),
@@ -485,6 +516,44 @@ impl TransactionDecoder {
             raw_input: input.to_vec(),
         })
     }
+
+    // Allowlist Decoders
+    // =========================================================================
+
+    /// Register Allowlist function decoders
+    fn register_allowlist_decoders(&mut self) {
+        // setAllowedBatch(address[] calldata addrs, bool[] calldata flags)
+        self.register(
+            FixedBytes::from(IAllowlist::setAllowedBatchCall::SELECTOR),
+            Self::decode_allowlist_set_allowed_batch,
+        );
+    }
+
+    fn decode_allowlist_set_allowed_batch(input: &[u8]) -> Result<DecodedCall, Error> {
+        let call = IAllowlist::setAllowedBatchCall::abi_decode(input, true)
+            .map_err(|e| Error::Other(format!("Failed to decode setAllowedBatch: {}", e)))?;
+
+        // Count how many addresses are being added vs removed
+        let added_count = call.flags.iter().filter(|&&f| f).count();
+        let removed_count = call.flags.len() - added_count;
+
+        Ok(DecodedCall {
+            function_name: "setAllowedBatch".to_string(),
+            contract_type: ContractType::Allowlist,
+            selector: format!(
+                "0x{}",
+                hex::encode(IAllowlist::setAllowedBatchCall::SELECTOR)
+            ),
+            parameters: serde_json::json!({
+                "addrs": call.addrs.iter().map(|a| format!("{:?}", a)).collect::<Vec<_>>(),
+                "flags": call.flags,
+                "total_count": call.addrs.len(),
+                "added_count": added_count,
+                "removed_count": removed_count,
+            }),
+            raw_input: input.to_vec(),
+        })
+    }
 }
 
 impl Default for TransactionDecoder {
@@ -574,5 +643,172 @@ mod tests {
         assert_eq!(decoded.contract_type, ContractType::PrimarySale);
         assert!(decoded.parameters.get("token").is_some());
         assert!(decoded.parameters.get("amount").is_some());
+    }
+
+    #[test]
+    fn test_decode_erc20_mint() {
+        use crate::protocols::evm::contracts::erc20::IERC20;
+
+        let decoder = TransactionDecoder::new();
+
+        // mint(0x4444444444444444444444444444444444444444, 1000000000000000000000)
+        let to = address!("4444444444444444444444444444444444444444");
+        let amount = U256::from(1000000000000000000000u128);
+
+        let call = IERC20::mintCall { to, amount };
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, None).unwrap();
+
+        assert_eq!(decoded.function_name, "mint");
+        assert_eq!(decoded.contract_type, ContractType::ERC20);
+        assert_eq!(decoded.selector, "0x40c10f19"); // Verify selector matches expected
+        assert!(decoded.parameters.get("to").is_some());
+        assert!(decoded.parameters.get("amount").is_some());
+
+        // Verify parameter values
+        let to_param = decoded
+            .parameters
+            .get("to")
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert!(to_param.contains("4444"));
+        let amount_param = decoded
+            .parameters
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert_eq!(amount_param, "1000000000000000000000");
+    }
+
+    #[test]
+    fn test_decode_allowlist_set_allowed_batch() {
+        use crate::protocols::evm::contracts::allowlist::IAllowlist;
+
+        let decoder = TransactionDecoder::new();
+
+        // setAllowedBatch with 3 addresses: 2 added, 1 removed
+        let addrs = vec![
+            address!("5555555555555555555555555555555555555555"),
+            address!("6666666666666666666666666666666666666666"),
+            address!("7777777777777777777777777777777777777777"),
+        ];
+        let flags = vec![true, true, false];
+
+        let call = IAllowlist::setAllowedBatchCall { addrs, flags };
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, None).unwrap();
+
+        assert_eq!(decoded.function_name, "setAllowedBatch");
+        assert_eq!(decoded.contract_type, ContractType::Allowlist);
+        assert_eq!(decoded.selector, "0xe9016fbb"); // Verify selector matches expected
+
+        // Verify parameters
+        let total_count = decoded
+            .parameters
+            .get("total_count")
+            .and_then(|v| v.as_u64())
+            .unwrap();
+        assert_eq!(total_count, 3);
+
+        let added_count = decoded
+            .parameters
+            .get("added_count")
+            .and_then(|v| v.as_u64())
+            .unwrap();
+        assert_eq!(added_count, 2);
+
+        let removed_count = decoded
+            .parameters
+            .get("removed_count")
+            .and_then(|v| v.as_u64())
+            .unwrap();
+        assert_eq!(removed_count, 1);
+
+        // Verify addresses array
+        let addrs_array = decoded
+            .parameters
+            .get("addrs")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(addrs_array.len(), 3);
+    }
+
+    #[test]
+    fn test_decode_initialize_settlement() {
+        let decoder = TransactionDecoder::new();
+
+        // initializeSettlement(assetToken, assetOwner)
+        let asset_token = address!("8888888888888888888888888888888888888888");
+        let asset_owner = address!("9999999999999999999999999999999999999999");
+
+        let call = IPrimarySale::initializeSettlementCall {
+            assetToken: asset_token,
+            assetOwner: asset_owner,
+        };
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, None).unwrap();
+
+        assert_eq!(decoded.function_name, "initializeSettlement");
+        assert_eq!(decoded.contract_type, ContractType::PrimarySale);
+        assert!(decoded.parameters.get("assetToken").is_some());
+        assert!(decoded.parameters.get("assetOwner").is_some());
+    }
+
+    #[test]
+    fn test_decode_settle_batch() {
+        let decoder = TransactionDecoder::new();
+
+        // settleBatch(250, [restricted1, restricted2])
+        let batch_size = U256::from(250u64);
+        let restricted_wallets = vec![
+            address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            address!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        ];
+
+        let call = IPrimarySale::settleBatchCall {
+            batchSize: batch_size,
+            restrictedWallets: restricted_wallets,
+        };
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, None).unwrap();
+
+        assert_eq!(decoded.function_name, "settleBatch");
+        assert_eq!(decoded.contract_type, ContractType::PrimarySale);
+
+        // Verify batch size
+        let batch_param = decoded
+            .parameters
+            .get("batchSize")
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert_eq!(batch_param, "250");
+
+        // Verify restricted wallets array
+        let restricted_array = decoded
+            .parameters
+            .get("restrictedWallets")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(restricted_array.len(), 2);
+    }
+
+    #[test]
+    fn test_decode_finalize_settlement() {
+        let decoder = TransactionDecoder::new();
+
+        // finalizeSettlement()
+        let call = IPrimarySale::finalizeSettlementCall {};
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, None).unwrap();
+
+        assert_eq!(decoded.function_name, "finalizeSettlement");
+        assert_eq!(decoded.contract_type, ContractType::PrimarySale);
+        // No parameters for this function
+        assert!(decoded.parameters.as_object().unwrap().is_empty());
     }
 }

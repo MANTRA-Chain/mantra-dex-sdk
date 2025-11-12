@@ -133,7 +133,13 @@ impl NarrativeGenerator {
                 self.generate_primary_sale_narrative(decoded, &from_str, &to_str, to)
                     .await
             }
+            ContractType::Allowlist => {
+                self.generate_allowlist_narrative(decoded, &from_str, &to_str)
+            }
             ContractType::ERC721 => self.generate_erc721_narrative(decoded, &from_str, &to_str),
+            ContractType::ContractCreation => {
+                self.generate_contract_creation_narrative(decoded, &from_str)
+            }
             ContractType::Unknown => self.generate_unknown_narrative(decoded, &from_str, &to_str),
         };
 
@@ -348,6 +354,27 @@ impl NarrativeGenerator {
                     from, formatted_amount, formatted_from, formatted_to, to_contract
                 )
             }
+            "mint" => {
+                let recipient = decoded
+                    .parameters
+                    .get("to")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let amount = decoded
+                    .parameters
+                    .get("amount")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0");
+
+                let formatted_recipient = self.parse_and_format_address(recipient);
+                let formatted_amount = self.format_amount(amount, decimals);
+                let to_contract = to_str.as_deref().unwrap_or("unknown contract");
+
+                format!(
+                    "{} minted {} tokens to {} via contract at {}",
+                    from, formatted_amount, formatted_recipient, to_contract
+                )
+            }
             _ => format!("{} called unknown ERC-20 function", from),
         }
     }
@@ -399,6 +426,54 @@ impl NarrativeGenerator {
             }
             "endSale" => {
                 format!("{} ended primary sale at {}", from, contract)
+            }
+            "initializeSettlement" => {
+                let asset_token = decoded
+                    .parameters
+                    .get("assetToken")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let asset_owner = decoded
+                    .parameters
+                    .get("assetOwner")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                let formatted_token = self.parse_and_format_address(asset_token);
+                let formatted_owner = self.parse_and_format_address(asset_owner);
+
+                format!(
+                    "{} initialized settlement with asset token {} from owner {} at {}",
+                    from, formatted_token, formatted_owner, contract
+                )
+            }
+            "settleBatch" => {
+                let batch_size = decoded
+                    .parameters
+                    .get("batchSize")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0");
+                let restricted_wallets = decoded
+                    .parameters
+                    .get("restrictedWallets")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0);
+
+                if restricted_wallets == 0 {
+                    format!(
+                        "{} settled batch of {} investors at {}",
+                        from, batch_size, contract
+                    )
+                } else {
+                    format!(
+                        "{} settled batch of {} investors (excluded {} restricted wallets) at {}",
+                        from, batch_size, restricted_wallets, contract
+                    )
+                }
+            }
+            "finalizeSettlement" => {
+                format!("{} finalized settlement at {}", from, contract)
             }
             "settleAndDistribute" => {
                 let asset_token = decoded
@@ -491,6 +566,54 @@ impl NarrativeGenerator {
         }
     }
 
+    /// Generate narrative for Allowlist transactions
+    fn generate_allowlist_narrative(
+        &self,
+        decoded: &DecodedCall,
+        from: &str,
+        to: &Option<String>,
+    ) -> String {
+        let contract = to.as_deref().unwrap_or("unknown contract");
+
+        match decoded.function_name.as_str() {
+            "setAllowedBatch" => {
+                let total_count = decoded
+                    .parameters
+                    .get("total_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let added_count = decoded
+                    .parameters
+                    .get("added_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let removed_count = decoded
+                    .parameters
+                    .get("removed_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+
+                if removed_count == 0 {
+                    format!(
+                        "{} updated allowlist for {} addresses (added: {}) at {}",
+                        from, total_count, added_count, contract
+                    )
+                } else if added_count == 0 {
+                    format!(
+                        "{} updated allowlist for {} addresses (removed: {}) at {}",
+                        from, total_count, removed_count, contract
+                    )
+                } else {
+                    format!(
+                        "{} updated allowlist for {} addresses (added: {}, removed: {}) at {}",
+                        from, total_count, added_count, removed_count, contract
+                    )
+                }
+            }
+            _ => format!("{} called unknown Allowlist function at {}", from, contract),
+        }
+    }
+
     /// Generate narrative for ERC-721 transactions
     fn generate_erc721_narrative(
         &self,
@@ -503,6 +626,25 @@ impl NarrativeGenerator {
             "{} called ERC-721 function '{}' at {}",
             from, decoded.function_name, contract
         )
+    }
+
+    /// Generate narrative for contract creation (deployment) transactions
+    ///
+    /// This is handled early in the transaction processing pipeline and already
+    /// includes the deployed contract address. This method serves as a fallback
+    /// or for direct NarrativeGenerator usage without the MCP adapter.
+    pub fn generate_contract_creation_narrative(
+        &self,
+        decoded: &DecodedCall,
+        from: &str,
+    ) -> String {
+        // Try to extract contract address from decoded parameters if available
+        if let Some(contract_addr) = decoded.parameters.get("contract_address") {
+            format!("{} deployed contract at {}", from, contract_addr)
+        } else {
+            // Fallback when address is not in parameters
+            format!("{} deployed contract", from)
+        }
     }
 
     /// Generate narrative for unknown contract transactions
@@ -628,5 +770,158 @@ mod tests {
         let result = generator.generate_sequential_narrative(vec![]);
 
         assert_eq!(result, "No transactions found.");
+    }
+
+    #[tokio::test]
+    async fn test_erc20_mint_narrative() {
+        use crate::protocols::evm::contracts::erc20::IERC20;
+
+        let decoder = TransactionDecoder::new();
+        let generator = NarrativeGenerator::new(None);
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let to_contract = address!("2222222222222222222222222222222222222222");
+        let recipient = address!("3333333333333333333333333333333333333333");
+        let amount = U256::from(1000000u64); // 1.0 with 6 decimals
+
+        let call = IERC20::mintCall {
+            to: recipient,
+            amount,
+        };
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, Some(to_contract)).unwrap();
+        let narrative = generator
+            .generate_narrative(&decoded, from, Some(to_contract), B256::ZERO, true)
+            .await;
+
+        assert!(narrative.contains("minted"));
+        assert!(narrative.contains("tokens"));
+        assert!(narrative.contains(&generator.abbreviate_address(recipient)));
+        assert!(narrative.contains("via contract"));
+    }
+
+    #[tokio::test]
+    async fn test_allowlist_narrative() {
+        use crate::protocols::evm::contracts::allowlist::IAllowlist;
+
+        let decoder = TransactionDecoder::new();
+        let generator = NarrativeGenerator::new(None);
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let contract = address!("2222222222222222222222222222222222222222");
+
+        // Test with 3 addresses: 2 added, 1 removed
+        let addrs = vec![
+            address!("3333333333333333333333333333333333333333"),
+            address!("4444444444444444444444444444444444444444"),
+            address!("5555555555555555555555555555555555555555"),
+        ];
+        let flags = vec![true, true, false];
+
+        let call = IAllowlist::setAllowedBatchCall { addrs, flags };
+        let input = call.abi_encode();
+
+        let decoded = decoder.decode(&input, Some(contract)).unwrap();
+        let narrative = generator
+            .generate_narrative(&decoded, from, Some(contract), B256::ZERO, true)
+            .await;
+
+        assert!(narrative.contains("updated allowlist"));
+        assert!(narrative.contains("3 addresses"));
+        assert!(narrative.contains("added: 2"));
+        assert!(narrative.contains("removed: 1"));
+    }
+
+    #[tokio::test]
+    async fn test_settlement_narratives() {
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+
+        let decoder = TransactionDecoder::new();
+        let generator = NarrativeGenerator::new(None);
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let contract = address!("2222222222222222222222222222222222222222");
+
+        // Test initializeSettlement
+        let asset_token = address!("3333333333333333333333333333333333333333");
+        let asset_owner = address!("4444444444444444444444444444444444444444");
+
+        let init_call = IPrimarySale::initializeSettlementCall {
+            assetToken: asset_token,
+            assetOwner: asset_owner,
+        };
+        let init_input = init_call.abi_encode();
+
+        let init_decoded = decoder.decode(&init_input, Some(contract)).unwrap();
+        let init_narrative = generator
+            .generate_narrative(&init_decoded, from, Some(contract), B256::ZERO, true)
+            .await;
+
+        assert!(init_narrative.contains("initialized settlement"));
+        assert!(init_narrative.contains("asset token"));
+        assert!(init_narrative.contains("from owner"));
+
+        // Test settleBatch
+        let batch_size = U256::from(250u64);
+        let restricted_wallets = vec![
+            address!("5555555555555555555555555555555555555555"),
+            address!("6666666666666666666666666666666666666666"),
+        ];
+
+        let batch_call = IPrimarySale::settleBatchCall {
+            batchSize: batch_size,
+            restrictedWallets: restricted_wallets,
+        };
+        let batch_input = batch_call.abi_encode();
+
+        let batch_decoded = decoder.decode(&batch_input, Some(contract)).unwrap();
+        let batch_narrative = generator
+            .generate_narrative(&batch_decoded, from, Some(contract), B256::ZERO, true)
+            .await;
+
+        assert!(batch_narrative.contains("settled batch"));
+        assert!(batch_narrative.contains("250 investors"));
+        assert!(batch_narrative.contains("excluded 2 restricted wallets"));
+
+        // Test finalizeSettlement
+        let finalize_call = IPrimarySale::finalizeSettlementCall {};
+        let finalize_input = finalize_call.abi_encode();
+
+        let finalize_decoded = decoder.decode(&finalize_input, Some(contract)).unwrap();
+        let finalize_narrative = generator
+            .generate_narrative(&finalize_decoded, from, Some(contract), B256::ZERO, true)
+            .await;
+
+        assert!(finalize_narrative.contains("finalized settlement"));
+    }
+
+    #[tokio::test]
+    async fn test_settlement_batch_no_restrictions() {
+        use crate::protocols::evm::contracts::primary_sale::IPrimarySale;
+
+        let decoder = TransactionDecoder::new();
+        let generator = NarrativeGenerator::new(None);
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let contract = address!("2222222222222222222222222222222222222222");
+
+        // Test settleBatch with no restricted wallets
+        let batch_size = U256::from(100u64);
+        let restricted_wallets = vec![];
+
+        let batch_call = IPrimarySale::settleBatchCall {
+            batchSize: batch_size,
+            restrictedWallets: restricted_wallets,
+        };
+        let batch_input = batch_call.abi_encode();
+
+        let batch_decoded = decoder.decode(&batch_input, Some(contract)).unwrap();
+        let batch_narrative = generator
+            .generate_narrative(&batch_decoded, from, Some(contract), B256::ZERO, true)
+            .await;
+
+        assert!(batch_narrative.contains("settled batch of 100 investors"));
+        assert!(!batch_narrative.contains("excluded")); // Should not mention restrictions
     }
 }

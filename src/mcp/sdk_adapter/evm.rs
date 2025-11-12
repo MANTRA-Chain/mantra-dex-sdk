@@ -2761,6 +2761,68 @@ impl McpSdkAdapter {
                     let from = tx.from;
                     let to = tx.to;
 
+                    // Detect contract creation transactions early (before decoder)
+                    // Contract creation transactions have to = None and deploy bytecode
+                    if to.is_none() {
+                        // This is a contract creation transaction
+                        let contract_address = match receipt_result {
+                            Ok(Some(receipt)) => receipt.contract_address,
+                            _ => None,
+                        };
+
+                        // Format addresses
+                        let from_str = format!("{:?}", from);
+                        let from_abbrev = if from_str.len() > 10 {
+                            format!("{}...{}", &from_str[..6], &from_str[from_str.len() - 4..])
+                        } else {
+                            from_str.clone()
+                        };
+
+                        // Generate appropriate narrative based on deployment status
+                        let narrative = if let Some(addr) = contract_address {
+                            // Successful deployment - show deployed address
+                            let addr_str = format!("{:?}", addr);
+                            let addr_abbrev = if addr_str.len() > 10 {
+                                format!("{}...{}", &addr_str[..6], &addr_str[addr_str.len() - 4..])
+                            } else {
+                                addr_str
+                            };
+                            format!("{} deployed contract at {}", from_abbrev, addr_abbrev)
+                        } else if !success {
+                            // Failed deployment
+                            format!("{} attempted to deploy contract (failed)", from_abbrev)
+                        } else {
+                            // Pending deployment (transaction exists but no receipt yet)
+                            let hash_str = format!("{:?}", hash);
+                            let hash_abbrev = if hash_str.len() > 10 {
+                                format!("{}...{}", &hash_str[..6], &hash_str[hash_str.len() - 4..])
+                            } else {
+                                hash_str
+                            };
+                            format!(
+                                "{} deployed contract [tx: {}] (pending)",
+                                from_abbrev, hash_abbrev
+                            )
+                        };
+
+                        narratives.push(narrative);
+
+                        // Store transaction details with contract_address field
+                        transaction_details.push(serde_json::json!({
+                            "hash": format!("{:?}", hash),
+                            "from": format!("{:?}", from),
+                            "to": null,
+                            "contract_address": contract_address.map(|a| format!("{:?}", a)),
+                            "transaction_type": "contract_creation",
+                            "success": success,
+                            "status": status,
+                            "decoded": true
+                        }));
+
+                        // Skip decoder for contract creation (bytecode is not function call)
+                        continue;
+                    }
+
                     let decoded = match decoder.decode(input, to) {
                         Ok(d) => d,
                         Err(_) => {

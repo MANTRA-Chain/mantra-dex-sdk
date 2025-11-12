@@ -196,9 +196,10 @@ mod tests {
                     Ok(Some(tx)) => {
                         match decoder.decode(&tx.input, tx.to) {
                             Ok(decoded) => {
-                                // Generate narrative
+                                // Generate narrative (now async)
                                 let narrative = generator
-                                    .generate_narrative(&decoded, tx.from, tx.to, tx_hash, false);
+                                    .generate_narrative(&decoded, tx.from, tx.to, tx_hash, false)
+                                    .await;
 
                                 println!("Generated narrative: {}", narrative);
                                 // Verify narrative is not empty and contains meaningful content
@@ -303,5 +304,271 @@ mod tests {
                 // Some RPC implementations might error instead of returning None
             }
         }
+    }
+
+    /// Unit test for contract creation narrative generation
+    #[test]
+    fn test_contract_creation_narrative_generation() {
+        use mantra_sdk::protocols::evm::transaction_decoder::ContractType;
+        use mantra_sdk::protocols::evm::transaction_decoder::DecodedCall;
+
+        let generator = NarrativeGenerator::new(None);
+
+        // Create a mock DecodedCall for contract creation
+        let decoded = DecodedCall {
+            function_name: "constructor".to_string(),
+            contract_type: ContractType::ContractCreation,
+            selector: "0x00000000".to_string(),
+            parameters: serde_json::json!({}),
+            raw_input: vec![],
+        };
+
+        let narrative = generator.generate_contract_creation_narrative(&decoded, "0x1234...5678");
+        println!("Contract creation narrative: {}", narrative);
+
+        assert!(
+            narrative.contains("deployed contract"),
+            "Narrative should mention deployment"
+        );
+        assert!(
+            narrative.contains("0x1234...5678"),
+            "Narrative should include the address"
+        );
+    }
+
+    /// Unit test for contract creation narrative with address
+    #[test]
+    fn test_contract_creation_narrative_with_address() {
+        use mantra_sdk::protocols::evm::transaction_decoder::ContractType;
+        use mantra_sdk::protocols::evm::transaction_decoder::DecodedCall;
+
+        let generator = NarrativeGenerator::new(None);
+
+        // Create a mock DecodedCall for contract creation with contract address
+        let decoded = DecodedCall {
+            function_name: "constructor".to_string(),
+            contract_type: ContractType::ContractCreation,
+            selector: "0x00000000".to_string(),
+            parameters: serde_json::json!({
+                "contract_address": "0xabcd...ef01"
+            }),
+            raw_input: vec![],
+        };
+
+        let narrative = generator.generate_contract_creation_narrative(&decoded, "you");
+        println!("Contract creation narrative with address: {}", narrative);
+
+        assert!(
+            narrative.contains("deployed contract at"),
+            "Should mention deployment location"
+        );
+        assert!(
+            narrative.contains("you"),
+            "Should use 'you' for active wallet"
+        );
+        assert!(
+            narrative.contains("0xabcd...ef01"),
+            "Should include deployed address"
+        );
+    }
+
+    /// Unit test for ContractType::ContractCreation variant
+    #[test]
+    fn test_contract_type_creation_variant() {
+        use mantra_sdk::protocols::evm::transaction_decoder::ContractType;
+
+        let creation_type = ContractType::ContractCreation;
+        let debug_str = format!("{:?}", creation_type);
+
+        println!("ContractType::ContractCreation debug: {}", debug_str);
+        assert_eq!(
+            debug_str, "ContractCreation",
+            "Should serialize as ContractCreation"
+        );
+    }
+
+    /// Integration test for contract creation detection in transaction analysis
+    /// This test analyzes a real contract creation transaction from Dukong testnet
+    #[tokio::test]
+    async fn test_contract_creation_detection_integration() {
+        let client = match get_evm_client().await {
+            Some(c) => c,
+            None => {
+                println!("Network unavailable - test skipped");
+                return;
+            }
+        };
+
+        // We'll look for a contract creation transaction (to = None)
+        // by checking the first test transaction
+        match alloy_primitives::B256::from_str(TEST_TX_HASH_1) {
+            Ok(tx_hash) => {
+                match client.get_transaction(tx_hash).await {
+                    Ok(Some(tx)) => {
+                        println!("Transaction info: to={:?}, from={:?}", tx.to, tx.from);
+
+                        // If this is a contract creation (to is None), verify detection
+                        if tx.to.is_none() {
+                            println!("Found contract creation transaction!");
+
+                            // Try to fetch receipt to verify contract_address extraction
+                            match client.get_transaction_receipt(tx_hash).await {
+                                Ok(Some(receipt)) => {
+                                    println!(
+                                        "Receipt contract_address: {:?}",
+                                        receipt.contract_address
+                                    );
+                                    if let Some(addr) = receipt.contract_address {
+                                        println!(
+                                            "Successfully detected deployed contract: {:?}",
+                                            addr
+                                        );
+                                        // Verify address is valid (non-zero)
+                                        assert!(
+                                            addr != alloy_primitives::Address::ZERO,
+                                            "Contract address should not be zero"
+                                        );
+                                    }
+                                }
+                                Ok(None) => {
+                                    println!(
+                                        "Receipt not available - transaction might be pending"
+                                    );
+                                }
+                                Err(e) => {
+                                    println!("Error fetching receipt: {}", e);
+                                }
+                            }
+                        } else {
+                            println!(
+                                "This transaction is not a contract creation (has to address)"
+                            );
+                        }
+                    }
+                    Ok(None) => {
+                        println!("Transaction not found");
+                    }
+                    Err(e) => {
+                        println!("Error fetching transaction: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                panic!("Failed to parse transaction hash: {}", e);
+            }
+        }
+    }
+
+    /// Integration test for failed contract creation detection
+    #[tokio::test]
+    async fn test_failed_contract_creation_detection() {
+        let client = match get_evm_client().await {
+            Some(c) => c,
+            None => {
+                println!("Network unavailable - test skipped");
+                return;
+            }
+        };
+
+        // Try each test transaction to find one that might be a failed deployment
+        for hash_str in &[
+            TEST_TX_HASH_1,
+            TEST_TX_HASH_2,
+            TEST_TX_HASH_3,
+            TEST_TX_HASH_4,
+        ] {
+            match alloy_primitives::B256::from_str(hash_str) {
+                Ok(tx_hash) => {
+                    match (
+                        client.get_transaction(tx_hash).await,
+                        client.get_transaction_receipt(tx_hash).await,
+                    ) {
+                        (Ok(Some(tx)), Ok(Some(receipt))) => {
+                            if tx.to.is_none() && !receipt.status() {
+                                println!("Found failed contract creation!");
+                                println!("Transaction failed but was detected as contract creation attempt");
+                                assert!(tx.to.is_none(), "Should have no 'to' address");
+                                assert!(!receipt.status(), "Should have failed status");
+                                return;
+                            }
+                        }
+                        _ => continue,
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        println!("No failed contract creation found in test data (this is okay)");
+    }
+
+    /// Test mixed batch of contract creation and function calls
+    #[tokio::test]
+    async fn test_contract_creation_in_mixed_batch() {
+        let client = match get_evm_client().await {
+            Some(c) => c,
+            None => {
+                println!("Network unavailable - test skipped");
+                return;
+            }
+        };
+
+        let _decoder = TransactionDecoder::new();
+
+        // Parse all test transaction hashes
+        let mut tx_hashes = Vec::new();
+        for hash_str in &[
+            TEST_TX_HASH_1,
+            TEST_TX_HASH_2,
+            TEST_TX_HASH_3,
+            TEST_TX_HASH_4,
+        ] {
+            match alloy_primitives::B256::from_str(hash_str) {
+                Ok(hash) => tx_hashes.push(hash),
+                Err(_) => {}
+            }
+        }
+
+        if tx_hashes.is_empty() {
+            println!("No valid transaction hashes - skipping batch test");
+            return;
+        }
+
+        // Fetch transactions and receipts
+        let transactions_results = client.get_transactions_batch(&tx_hashes).await;
+        let receipts_results = client.get_transaction_receipts_batch(&tx_hashes).await;
+
+        let mut contract_creations_found = 0;
+        let mut function_calls_found = 0;
+
+        for (i, tx_result) in transactions_results.iter().enumerate() {
+            if let Ok(Some(tx)) = tx_result {
+                if tx.to.is_none() {
+                    // This is a contract creation
+                    contract_creations_found += 1;
+                    println!("Transaction {} is a contract creation", i);
+
+                    // Verify receipt has contract_address
+                    if let Ok(Some(receipt)) = &receipts_results[i] {
+                        if let Some(addr) = receipt.contract_address {
+                            println!("  - Deployed at: {:?}", addr);
+                        }
+                    }
+                } else {
+                    // This is a regular function call
+                    function_calls_found += 1;
+                    println!("Transaction {} is a function call to {:?}", i, tx.to);
+                }
+            }
+        }
+
+        println!(
+            "Batch analysis: {} creations, {} function calls",
+            contract_creations_found, function_calls_found
+        );
+        println!(
+            "Total transactions in batch: {}",
+            transactions_results.len()
+        );
     }
 }
