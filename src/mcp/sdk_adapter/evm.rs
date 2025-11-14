@@ -191,10 +191,7 @@ impl McpSdkAdapter {
             // Update the priority fee if max_fee was already set
             if let Some(max_fee) = max_fee_per_gas {
                 let max_fee_u256 = alloy_primitives::U256::from_str(max_fee).map_err(|e| {
-                    McpServerError::InvalidArguments(format!(
-                        "Invalid max_fee_per_gas: {}",
-                        e
-                    ))
+                    McpServerError::InvalidArguments(format!("Invalid max_fee_per_gas: {}", e))
                 })?;
                 tx_request = tx_request.eip1559_fees(max_fee_u256, priority_fee_u256);
             }
@@ -455,8 +452,9 @@ impl McpSdkAdapter {
         }
 
         // Parse value
-        let value_u256 = alloy_primitives::U256::from_str(value)
-            .map_err(|e| McpServerError::InvalidArguments(format!("Invalid value '{}': {}", value, e)))?;
+        let value_u256 = alloy_primitives::U256::from_str(value).map_err(|e| {
+            McpServerError::InvalidArguments(format!("Invalid value '{}': {}", value, e))
+        })?;
 
         // Get wallet and EVM client
         let wallet = self.get_active_wallet_with_validation().await?;
@@ -818,14 +816,12 @@ impl McpSdkAdapter {
             .map_err(McpServerError::Sdk)?;
 
         if !has_role {
-            return Err(McpServerError::InvalidArguments(
-                format!(
-                    "Wallet {} does not have DEFAULT_ADMIN_ROLE for contract {}. \
+            return Err(McpServerError::InvalidArguments(format!(
+                "Wallet {} does not have DEFAULT_ADMIN_ROLE for contract {}. \
                     Only admins can perform this operation.",
-                    format!("{:#x}", wallet_addr),
-                    format!("{:#x}", contract_addr)
-                )
-            ));
+                format!("{:#x}", wallet_addr),
+                format!("{:#x}", contract_addr)
+            )));
         }
 
         Ok(())
@@ -1102,8 +1098,10 @@ impl McpSdkAdapter {
         // Format per-token contributions
         let mut contributions_by_token = serde_json::Map::new();
         for (token_addr, amount) in &investor_info.contributions_by_token {
-            contributions_by_token
-                .insert(format!("{:#x}", token_addr), serde_json::json!(amount.to_string()));
+            contributions_by_token.insert(
+                format!("{:#x}", token_addr),
+                serde_json::json!(amount.to_string()),
+            );
         }
 
         let response = serde_json::json!({
@@ -1438,9 +1436,10 @@ impl McpSdkAdapter {
             ));
         }
         if limit > 1000 {
-            return Err(McpServerError::InvalidArguments(
-                format!("Limit too large: {}. Maximum allowed is 1000.", limit),
-            ));
+            return Err(McpServerError::InvalidArguments(format!(
+                "Limit too large: {}. Maximum allowed is 1000.",
+                limit
+            )));
         }
 
         let (evm_client, _chain_id) = self.get_evm_client().await?;
@@ -1452,12 +1451,12 @@ impl McpSdkAdapter {
             .await
             .map_err(McpServerError::Sdk)?;
 
-        let total: usize = total_count
-            .try_into()
-            .map_err(|_| McpServerError::Other(format!(
+        let total: usize = total_count.try_into().map_err(|_| {
+            McpServerError::Other(format!(
                 "Investor count overflow: {} exceeds maximum addressable size",
                 total_count
-            )))?;
+            ))
+        })?;
 
         // Retrieve investors with enhanced error context
         let investors = primary_sale
@@ -1556,9 +1555,10 @@ impl McpSdkAdapter {
                 5 => "Cancelled",
                 _ => "Unknown",
             };
-            return Err(McpServerError::InvalidArguments(
-                format!("Cannot activate sale in {} status. Sale must be in Pending status.", status_str)
-            ));
+            return Err(McpServerError::InvalidArguments(format!(
+                "Cannot activate sale in {} status. Sale must be in Pending status.",
+                status_str
+            )));
         }
 
         // 4. Encode activate call
@@ -1642,9 +1642,10 @@ impl McpSdkAdapter {
                 5 => "Cancelled",
                 _ => "Unknown",
             };
-            return Err(McpServerError::InvalidArguments(
-                format!("Cannot end sale in {} status. Sale must be in Active status.", status_str)
-            ));
+            return Err(McpServerError::InvalidArguments(format!(
+                "Cannot end sale in {} status. Sale must be in Active status.",
+                status_str
+            )));
         }
 
         let total_contributed = primary_sale
@@ -1740,7 +1741,8 @@ impl McpSdkAdapter {
             \n\
             Use primary_sale_get_settlement_progress to monitor progress.\n\
             \n\
-            See MIGRATION_GUIDE_V2.md for detailed migration instructions.".to_string()
+            See MIGRATION_GUIDE_V2.md for detailed migration instructions."
+                .to_string(),
         ))
     }
 
@@ -2083,8 +2085,12 @@ impl McpSdkAdapter {
         let restricted_addrs: Vec<Address> = restricted_wallets
             .iter()
             .map(|addr_str| {
-                Address::from_str(addr_str)
-                    .map_err(|e| McpServerError::InvalidArguments(format!("Invalid restricted wallet address {}: {}", addr_str, e)))
+                Address::from_str(addr_str).map_err(|e| {
+                    McpServerError::InvalidArguments(format!(
+                        "Invalid restricted wallet address {}: {}",
+                        addr_str, e
+                    ))
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -2190,7 +2196,8 @@ impl McpSdkAdapter {
 
         if !can_finalize {
             return Err(McpServerError::InvalidArguments(
-                "Cannot finalize settlement yet. Ensure all investors have been processed first.".to_string(),
+                "Cannot finalize settlement yet. Ensure all investors have been processed first."
+                    .to_string(),
             ));
         }
 
@@ -2338,9 +2345,10 @@ impl McpSdkAdapter {
         };
 
         if current_status != 0 && current_status != 1 {
-            return Err(McpServerError::InvalidArguments(
-                format!("Cannot cancel sale in {} status. Sale must be in Pending or Active status.", status_str)
-            ));
+            return Err(McpServerError::InvalidArguments(format!(
+                "Cannot cancel sale in {} status. Sale must be in Pending or Active status.",
+                status_str
+            )));
         }
 
         // 3. Encode cancel call
@@ -2572,9 +2580,10 @@ impl McpSdkAdapter {
                 4 => "Settled",
                 _ => "Unknown",
             };
-            return Err(McpServerError::InvalidArguments(
-                format!("Cannot emergency withdraw in {} status. Sale must be Cancelled.", status_str)
-            ));
+            return Err(McpServerError::InvalidArguments(format!(
+                "Cannot emergency withdraw in {} status. Sale must be Cancelled.",
+                status_str
+            )));
         }
 
         let erc20 = evm_client.erc20(token_addr);
@@ -2618,6 +2627,340 @@ impl McpSdkAdapter {
             "amount_raw": amount_u256.to_string(),
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))
+    }
+
+    /// Analyze EVM transaction history and generate human-readable narrative
+    ///
+    /// Fetches multiple transactions, decodes their input data, and generates
+    /// a sequential narrative describing what actions were performed.
+    ///
+    /// # Arguments
+    /// * `args` - JSON object containing:
+    ///   - `transaction_hashes`: Array of transaction hashes (0x...) [required]
+    ///   - `include_failed`: Whether to include failed transactions (default: false)
+    ///
+    /// # Returns
+    /// * JSON object with narrative text and transaction details
+    pub async fn evm_analyze_transaction_history(&self, args: Value) -> McpResult<Value> {
+        use crate::protocols::evm::narrative_generator::NarrativeGenerator;
+        use crate::protocols::evm::transaction_decoder::TransactionDecoder;
+
+        debug!(
+            "SDK Adapter: Analyzing transaction history with args: {:?}",
+            args
+        );
+
+        // Parse transaction hashes
+        let tx_hashes_json = args
+            .get("transaction_hashes")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| {
+                McpServerError::InvalidArguments("transaction_hashes array is required".to_string())
+            })?;
+
+        if tx_hashes_json.is_empty() {
+            return Err(McpServerError::InvalidArguments(
+                "transaction_hashes array cannot be empty".to_string(),
+            ));
+        }
+
+        // Limit batch size to prevent RPC rate limiting (each tx requires 2 RPC calls: tx + receipt)
+        // 20 transactions = ~40 base RPC calls + ~10 token decimal queries = ~50 total calls
+        // This is within safe limits for public RPC endpoints (typically 10-20 req/sec)
+        if tx_hashes_json.len() > 20 {
+            return Err(McpServerError::InvalidArguments(
+                "Maximum 20 transaction hashes allowed".to_string(),
+            ));
+        }
+
+        // Parse include_failed parameter
+        let include_failed = args
+            .get("include_failed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        // Convert JSON strings to B256
+        let mut tx_hashes = Vec::new();
+        for hash_value in tx_hashes_json {
+            let hash_str = hash_value.as_str().ok_or_else(|| {
+                McpServerError::InvalidArguments(
+                    "All transaction hashes must be strings".to_string(),
+                )
+            })?;
+
+            if !hash_str.starts_with("0x") || hash_str.len() != 66 {
+                return Err(McpServerError::InvalidArguments(format!(
+                    "Invalid transaction hash format: {}",
+                    hash_str
+                )));
+            }
+
+            let hash = alloy_primitives::B256::from_str(hash_str).map_err(|e| {
+                McpServerError::InvalidArguments(format!("Invalid transaction hash: {}", e))
+            })?;
+
+            tx_hashes.push(hash);
+        }
+
+        // Get EVM client
+        let (evm_client, _chain_id) = self.get_evm_client().await?;
+
+        // Get active wallet address for narrative context
+        let active_wallet = match self.get_active_wallet().await {
+            Ok(Some(wallet)) => wallet.ethereum_address().ok(),
+            _ => None,
+        };
+
+        // Fetch transactions and receipts in parallel
+        let transactions_results = evm_client.get_transactions_batch(&tx_hashes).await;
+        let receipts_results = evm_client.get_transaction_receipts_batch(&tx_hashes).await;
+
+        // Create decoder and narrative generator with EVM client for token metadata queries
+        let decoder = TransactionDecoder::new();
+        let generator = NarrativeGenerator::new_with_client(active_wallet, evm_client.clone());
+
+        // Process each transaction
+        let mut narratives = Vec::new();
+        let mut transaction_details = Vec::new();
+        let mut errors = Vec::new();
+
+        for (i, hash) in tx_hashes.iter().enumerate() {
+            // Get transaction and receipt
+            let tx_result = &transactions_results[i];
+            let receipt_result = &receipts_results[i];
+
+            match tx_result {
+                Ok(Some(tx)) => {
+                    // Determine transaction status with proper state tracking
+                    let (success, status) = match receipt_result {
+                        Ok(Some(receipt)) => {
+                            // Receipt available - check if succeeded or failed
+                            if receipt.status() {
+                                (true, "success")
+                            } else {
+                                (false, "failed")
+                            }
+                        }
+                        Ok(None) => {
+                            // Transaction exists but no receipt - pending (not mined yet)
+                            (false, "pending")
+                        }
+                        Err(_) => {
+                            // Error fetching receipt - unknown state
+                            (false, "unknown")
+                        }
+                    };
+
+                    // Skip failed/pending/unknown transactions if not including them
+                    if !success && !include_failed {
+                        continue;
+                    }
+
+                    // Decode transaction input
+                    let input = tx.input.as_ref();
+                    let from = tx.from;
+                    let to = tx.to;
+
+                    // Detect contract creation transactions early (before decoder)
+                    // Contract creation transactions have to = None and deploy bytecode
+                    if to.is_none() {
+                        // This is a contract creation transaction
+                        let contract_address = match receipt_result {
+                            Ok(Some(receipt)) => receipt.contract_address,
+                            _ => None,
+                        };
+
+                        // Format addresses
+                        let from_str = format!("{:?}", from);
+                        let from_abbrev = if from_str.len() > 10 {
+                            format!("{}...{}", &from_str[..6], &from_str[from_str.len() - 4..])
+                        } else {
+                            from_str.clone()
+                        };
+
+                        // Generate appropriate narrative based on deployment status
+                        let narrative = if let Some(addr) = contract_address {
+                            // Successful deployment - show deployed address
+                            let addr_str = format!("{:?}", addr);
+                            let addr_abbrev = if addr_str.len() > 10 {
+                                format!("{}...{}", &addr_str[..6], &addr_str[addr_str.len() - 4..])
+                            } else {
+                                addr_str
+                            };
+                            format!("{} deployed contract at {}", from_abbrev, addr_abbrev)
+                        } else if !success {
+                            // Failed deployment
+                            format!("{} attempted to deploy contract (failed)", from_abbrev)
+                        } else {
+                            // Pending deployment (transaction exists but no receipt yet)
+                            let hash_str = format!("{:?}", hash);
+                            let hash_abbrev = if hash_str.len() > 10 {
+                                format!("{}...{}", &hash_str[..6], &hash_str[hash_str.len() - 4..])
+                            } else {
+                                hash_str
+                            };
+                            format!(
+                                "{} deployed contract [tx: {}] (pending)",
+                                from_abbrev, hash_abbrev
+                            )
+                        };
+
+                        narratives.push(narrative);
+
+                        // Store transaction details with contract_address field
+                        transaction_details.push(serde_json::json!({
+                            "hash": format!("{:?}", hash),
+                            "from": format!("{:?}", from),
+                            "to": null,
+                            "contract_address": contract_address.map(|a| format!("{:?}", a)),
+                            "transaction_type": "contract_creation",
+                            "success": success,
+                            "status": status,
+                            "decoded": true
+                        }));
+
+                        // Skip decoder for contract creation (bytecode is not function call)
+                        continue;
+                    }
+
+                    let decoded = match decoder.decode(input, to) {
+                        Ok(d) => d,
+                        Err(_) => {
+                            // Failed to decode, create unknown transaction narrative
+                            let from_str = format!("{:?}", from);
+                            let from_abbrev = if from_str.len() > 10 {
+                                format!("{}...{}", &from_str[..6], &from_str[from_str.len() - 4..])
+                            } else {
+                                from_str
+                            };
+
+                            let hash_str = format!("{:?}", hash);
+                            let hash_abbrev = if hash_str.len() > 10 {
+                                format!("{}...{}", &hash_str[..6], &hash_str[hash_str.len() - 4..])
+                            } else {
+                                hash_str
+                            };
+
+                            let narrative = if let Some(to_addr) = to {
+                                let to_str = format!("{:?}", to_addr);
+                                let to_abbrev = if to_str.len() > 10 {
+                                    format!("{}...{}", &to_str[..6], &to_str[to_str.len() - 4..])
+                                } else {
+                                    to_str
+                                };
+                                format!(
+                                    "{} called contract at {} [tx: {}]",
+                                    from_abbrev, to_abbrev, hash_abbrev
+                                )
+                            } else {
+                                format!("{} deployed contract [tx: {}]", from_abbrev, hash_abbrev)
+                            };
+                            narratives.push(narrative);
+
+                            transaction_details.push(serde_json::json!({
+                                "hash": format!("{:?}", hash),
+                                "from": format!("{:?}", from),
+                                "to": to.map(|t| format!("{:?}", t)),
+                                "success": success,
+                                "status": status,
+                                "decoded": false
+                            }));
+                            continue;
+                        }
+                    };
+
+                    // Generate narrative (now async for token decimal queries)
+                    let narrative = generator
+                        .generate_narrative(&decoded, from, to, *hash, success)
+                        .await;
+                    narratives.push(narrative);
+
+                    // Store transaction details
+                    transaction_details.push(serde_json::json!({
+                        "hash": format!("{:?}", hash),
+                        "from": format!("{:?}", from),
+                        "to": to.map(|t| format!("{:?}", t)),
+                        "function": decoded.function_name,
+                        "contract_type": format!("{:?}", decoded.contract_type),
+                        "parameters": decoded.parameters,
+                        "success": success,
+                        "status": status,
+                        "decoded": true
+                    }));
+                }
+                Ok(None) => {
+                    // Transaction not found
+                    let error_msg = "Transaction not found";
+                    errors.push(serde_json::json!({
+                        "hash": format!("{:?}", hash),
+                        "type": "not_found",
+                        "message": error_msg
+                    }));
+                    narratives.push(format!("Transaction {} not found", hash));
+                    transaction_details.push(serde_json::json!({
+                        "hash": format!("{:?}", hash),
+                        "error": error_msg,
+                        "error_type": "not_found"
+                    }));
+                }
+                Err(e) => {
+                    // Error fetching transaction (network error, timeout, etc.)
+                    let error_msg = format!("{}", e);
+                    let error_type = if error_msg.contains("timeout")
+                        || error_msg.contains("timed out")
+                    {
+                        "timeout"
+                    } else if error_msg.contains("network") || error_msg.contains("connection") {
+                        "network_error"
+                    } else {
+                        "rpc_error"
+                    };
+
+                    errors.push(serde_json::json!({
+                        "hash": format!("{:?}", hash),
+                        "type": error_type,
+                        "message": error_msg
+                    }));
+                    narratives.push(format!("Error fetching transaction {}: {}", hash, e));
+                    transaction_details.push(serde_json::json!({
+                        "hash": format!("{:?}", hash),
+                        "error": error_msg,
+                        "error_type": error_type
+                    }));
+                }
+            }
+        }
+
+        // Generate sequential narrative
+        let mut full_narrative = generator.generate_sequential_narrative(narratives);
+
+        // Add error summary to narrative if any errors occurred
+        if !errors.is_empty() {
+            let error_summary = format!(
+                "\n\nNote: {} transaction(s) failed to process.",
+                errors.len()
+            );
+            full_narrative.push_str(&error_summary);
+        }
+
+        // Build response with error tracking
+        let mut response = serde_json::json!({
+            "status": "success",
+            "operation": "evm_analyze_transaction_history",
+            "narrative": full_narrative,
+            "transactions_analyzed": transaction_details.len() - errors.len(),
+            "transactions_failed": errors.len(),
+            "transactions": transaction_details,
+            "include_failed": include_failed,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+
+        // Add errors array if any errors occurred
+        if !errors.is_empty() {
+            response["errors"] = serde_json::json!(errors);
+        }
+
+        Ok(response)
     }
 }
 

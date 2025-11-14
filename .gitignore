@@ -11,6 +11,7 @@ artifacts/
 *.iml
 .claude
 PRPs/
+CLAUDE.md
 
 # macOS
 .DS_Store

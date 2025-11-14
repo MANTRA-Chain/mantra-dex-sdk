@@ -3383,6 +3383,29 @@ impl McpToolProvider for MantraDexMcpServer {
                     "required": ["contract_address", "token_address", "recipient", "amount"]
                 }
             }),
+            #[cfg(feature = "evm")]
+            serde_json::json!({
+                "name": "evm_analyze_transaction_history",
+                "description": "Analyze EVM transaction history and generate human-readable narrative. Fetches transactions, decodes their input data, and creates a sequential story of on-chain actions.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "transaction_hashes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Array of transaction hashes (0x...) to analyze",
+                            "minItems": 1,
+                            "maxItems": 20
+                        },
+                        "include_failed": {
+                            "type": "boolean",
+                            "description": "Include failed transactions in narrative (default: false)",
+                            "default": false
+                        }
+                    },
+                    "required": ["transaction_hashes"]
+                }
+            }),
         ]
     }
 
@@ -3473,10 +3496,13 @@ impl McpToolProvider for MantraDexMcpServer {
             "primary_sale_end_sale" => self.handle_primary_sale_end_sale(arguments).await,
             #[cfg(feature = "evm")]
             "primary_sale_settle_and_distribute" => {
-                self.handle_primary_sale_settle_and_distribute(arguments).await
+                self.handle_primary_sale_settle_and_distribute(arguments)
+                    .await
             }
             #[cfg(feature = "evm")]
-            "primary_sale_top_up_refunds" => self.handle_primary_sale_top_up_refunds(arguments).await,
+            "primary_sale_top_up_refunds" => {
+                self.handle_primary_sale_top_up_refunds(arguments).await
+            }
             #[cfg(feature = "evm")]
             "primary_sale_cancel" => self.handle_primary_sale_cancel(arguments).await,
             #[cfg(feature = "evm")]
@@ -3486,6 +3512,11 @@ impl McpToolProvider for MantraDexMcpServer {
             #[cfg(feature = "evm")]
             "primary_sale_emergency_withdraw" => {
                 self.handle_primary_sale_emergency_withdraw(arguments).await
+            }
+
+            #[cfg(feature = "evm")]
+            "evm_analyze_transaction_history" => {
+                self.handle_evm_analyze_transaction_history(arguments).await
             }
 
             _ => Err(McpServerError::UnknownTool(tool_name.to_string())),
@@ -5191,14 +5222,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_get_sale_info tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_get_sale_info(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5221,14 +5253,15 @@ impl MantraDexMcpServer {
             ?arguments,
             "Handling primary_sale_get_investor_info tool call"
         );
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_get_investor_info(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5248,11 +5281,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_invest tool call");
-        let result = self.state.sdk_adapter.primary_sale_invest(arguments).await?;
+        let result = self
+            .state
+            .sdk_adapter
+            .primary_sale_invest(arguments)
+            .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5272,14 +5309,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_claim_refund tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_claim_refund(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5302,14 +5340,15 @@ impl MantraDexMcpServer {
             ?arguments,
             "Handling primary_sale_get_all_investors tool call"
         );
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_get_all_investors(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5329,14 +5368,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_activate tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_activate(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5356,14 +5396,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_end_sale tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_end_sale(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5386,14 +5427,15 @@ impl MantraDexMcpServer {
             ?arguments,
             "Handling primary_sale_settle_and_distribute tool call"
         );
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_settle_and_distribute(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5413,14 +5455,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_top_up_refunds tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_top_up_refunds(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5440,14 +5483,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_cancel tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_cancel(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5467,14 +5511,11 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_pause tool call");
-        let result = self.state
-            .sdk_adapter
-            .primary_sale_pause(arguments)
-            .await?;
+        let result = self.state.sdk_adapter.primary_sale_pause(arguments).await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5494,14 +5535,15 @@ impl MantraDexMcpServer {
         arguments: serde_json::Value,
     ) -> McpResult<serde_json::Value> {
         info!(?arguments, "Handling primary_sale_unpause tool call");
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_unpause(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5524,14 +5566,15 @@ impl MantraDexMcpServer {
             ?arguments,
             "Handling primary_sale_emergency_withdraw tool call"
         );
-        let result = self.state
+        let result = self
+            .state
             .sdk_adapter
             .primary_sale_emergency_withdraw(arguments)
             .await?;
 
         // Format the response as readable text
-        let response_text = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| result.to_string());
+        let response_text =
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         // Return proper MCP response format
         Ok(serde_json::json!({
@@ -5541,6 +5584,44 @@ impl MantraDexMcpServer {
                     "text": response_text
                 }
             ]
+        }))
+    }
+
+    /// Handle evm_analyze_transaction_history tool
+    #[cfg(feature = "evm")]
+    async fn handle_evm_analyze_transaction_history(
+        &self,
+        arguments: serde_json::Value,
+    ) -> McpResult<serde_json::Value> {
+        info!(
+            ?arguments,
+            "Handling evm_analyze_transaction_history tool call"
+        );
+        let result = self
+            .state
+            .sdk_adapter
+            .evm_analyze_transaction_history(arguments)
+            .await?;
+
+        // Extract narrative for readable output
+        let narrative = result
+            .get("narrative")
+            .and_then(|v| v.as_str())
+            .unwrap_or("No narrative generated");
+
+        // Return proper MCP response format with narrative as main text
+        Ok(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": narrative
+                }
+            ],
+            "metadata": {
+                "transactions_analyzed": result.get("transactions_analyzed"),
+                "include_failed": result.get("include_failed"),
+                "details": result.get("transactions")
+            }
         }))
     }
 }
